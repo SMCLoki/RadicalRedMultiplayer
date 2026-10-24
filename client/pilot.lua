@@ -2,7 +2,12 @@
 -- File format: first line "id <number>" (re-run when it changes), then one command per line:
 --   HOLD <KEY> <frames>   WAIT <frames>   MASH <KEY> <frames>   SAVE <slot>   LOAD <slot>
 -- KEY: A B START SELECT UP DOWN LEFT RIGHT L R.  Writes work/pilot_done.txt "<id>" when finished.
-local DIR = "C:/Users/you/Desktop/Radical Red/work/"
+local function workDir()
+  if RRMP_WORK then return (RRMP_WORK:gsub("\\", "/"):gsub("/?$", "/")) end
+  local src = debug.getinfo(1, "S").source:gsub("^@", ""):gsub("\\", "/")
+  return (src:match("^(.*)/[^/]*$") or ".") .. "/../work/"
+end
+local DIR = workDir()
 local BIT = { A = 0, B = 1, SELECT = 2, START = 3, RIGHT = 4, LEFT = 5, UP = 6, DOWN = 7, R = 8, L = 9 }
 
 local lastId, queue, cur, frame, doneId = nil, {}, nil, 0, nil

@@ -32,7 +32,7 @@ function emu:readRange(a, n) return py.read_range(a, n) end
 function emu:getGameCode() return "AGB-BPRE" end
 function emu:getGameTitle() return "POKEMON FIRE" end
 function emu:currentFrame() return py.frame end
-function emu:checksum(t) return py.checksum end
+function emu:checksum(t) return py.checksum end  -- 0.10: type defaults to CRC32
 C = { CHECKSUM = { CRC32 = 0 } }
 
 console = {}
@@ -41,6 +41,7 @@ function console:warn(s) py.log(s) end
 function console:error(s) py.log(s) end
 function console:createBuffer(name)
   local b = { text = "" }
+  function b:setSize(c, r) end
   function b:clear() self.text = "" end
   function b:print(s) self.text = self.text .. s end
   __panel = b
@@ -73,7 +74,7 @@ end
 function __frame()
   for h, s in pairs(__socks) do
     if py.readable(h) then
-      for _, c in ipairs(s.cbs) do if c.ev == "received" then c.fn() end end
+      for _, c in ipairs(s.cbs) do if c.ev == "received" then c.fn(s) end end  -- mGBA passes the socket
     end
   end
   __fire("frame")
@@ -142,7 +143,7 @@ class _Py:
         try:
             return s.send(data)
         except BlockingIOError:
-            return None, b"again"
+            return None, b"temporary failure"
         except OSError:
             return None, b"disconnected"
 
@@ -153,7 +154,7 @@ class _Py:
         try:
             data = s.recv(int(n))
         except BlockingIOError:
-            return None, b"again"
+            return None, b"temporary failure"
         except OSError:
             return None, b"disconnected"
         if not data:

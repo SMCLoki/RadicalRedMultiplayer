@@ -355,8 +355,9 @@ end
 local function gameId()
   local code = tostring(emu:getGameCode() or "GBA"):gsub("[^%w%-]", "")
   local crc
-  if emu.checksum and C and C.CHECKSUM and C.CHECKSUM.CRC32 then
-    local ok, raw = pcall(emu.checksum, emu, C.CHECKSUM.CRC32)
+  if emu.checksum then
+    -- 0.10: emu:checksum(type) defaults to CRC32 and returns 4 big-endian bytes
+    local ok, raw = pcall(emu.checksum, emu)
     if ok and type(raw) == "string" and #raw > 0 then crc = tohex(raw) end
   end
   if not crc then
@@ -411,6 +412,8 @@ local net = { sock = nil, inbuf = "", outbuf = "", lastRx = 0, nextPing = 0, bac
               retryAt = 0, pingN = 0, pingAt = {}, rtt = nil, auto = cfg.autoconnect ~= "0" }
 M.net = net
 local handlers = {}
+-- mGBA 0.10 reports EAGAIN as "temporary failure" (src/script/engines/lua.c)
+local TRANSIENT = { again = true, ["temporary failure"] = true }
 local NO_RETRY = { bad_version = true, game_mismatch = true, room_full = true, replaced = true, bad_hello = true }
 
 local function send(msg)
@@ -444,7 +447,7 @@ local function flush()
   local ok, sent, err = pcall(net.sock.send, net.sock, net.outbuf)
   if not ok then drop("send failed: " .. tostring(sent)); return end
   if sent == nil then
-    if err ~= "again" then drop("send: " .. tostring(err)) end
+    if not TRANSIENT[err] then drop("send: " .. tostring(err)) end
     return
   end
   if type(sent) == "number" and sent < #net.outbuf then
@@ -474,7 +477,7 @@ local function onReceived()
   if sock ~= net.sock then return end
   if not ok then drop("receive failed: " .. tostring(data)); return end
   if not data or data == "" then
-    if err ~= "again" then drop(err or "disconnected") end
+    if not TRANSIENT[err] then drop(err or "disconnected") end
     return
   end
   net.lastRx = S.frame
@@ -502,7 +505,8 @@ local function connect()
   net.sock, net.inbuf, net.outbuf = sock, "", ""
   net.lastRx, net.nextPing = S.frame, S.frame + 2 * FPS
   sock:add("received", onReceived)
-  sock:add("error", function(e) if net.sock == sock then drop("socket error " .. tostring(e)) end end)
+  -- mGBA calls socket callbacks as cb(socket, ...)
+  sock:add("error", function(_, e) if net.sock == sock then drop("socket error " .. tostring(e)) end end)
   send({ t = "hello", v = PROTO, name = cfg.name, room = cfg.room, game = gameId(), uid = uid(),
          client = "rr_mp.lua " .. VERSION })
   flush()
@@ -817,7 +821,10 @@ end
 local panel
 if console and console.createBuffer then
   local ok, buf = pcall(console.createBuffer, console, "RR Online")
-  if ok then panel = buf end
+  if ok and buf then
+    panel = buf
+    pcall(buf.setSize, buf, 100, 40)
+  end
 end
 
 local function render()

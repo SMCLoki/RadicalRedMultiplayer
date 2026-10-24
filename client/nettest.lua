@@ -1,5 +1,10 @@
 -- Phase 0/1 check: can the mGBA Lua socket API reach a local TCP server? Result in work/nettest_out.txt
-local OUT = "C:/Users/you/Desktop/Radical Red/work/nettest_out.txt"
+local function workDir()
+  if RRMP_WORK then return (RRMP_WORK:gsub("\\", "/"):gsub("/?$", "/")) end
+  local src = debug.getinfo(1, "S").source:gsub("^@", ""):gsub("\\", "/")
+  return (src:match("^(.*)/[^/]*$") or ".") .. "/../work/"
+end
+local OUT = workDir() .. "nettest_out.txt"
 local log = {}
 local function L(s) log[#log + 1] = s; local f = io.open(OUT, "w"); if f then f:write(table.concat(log, "\n"), "\n"); f:close() end end
 L("socket keys:")

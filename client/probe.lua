@@ -1,6 +1,11 @@
 -- Phase 0 probe: verifies candidate RAM addresses on Radical Red and writes a report
 -- Load in mGBA: Tools > Scripting > File > Load script. Report: work/probe_out.txt
-local OUT = "C:/Users/you/Desktop/Radical Red/work/probe_out.txt"
+local function workDir()
+  if RRMP_WORK then return (RRMP_WORK:gsub("\\", "/"):gsub("/?$", "/")) end
+  local src = debug.getinfo(1, "S").source:gsub("^@", ""):gsub("\\", "/")
+  return (src:match("^(.*)/[^/]*$") or ".") .. "/../work/"
+end
+local OUT = workDir() .. "probe_out.txt"
 
 -- Candidate vanilla FireRed 1.0 (BPRE) addresses. HYPOTHESES until verified below.
 local CAND = {

@@ -2,11 +2,14 @@
 
 Paste everything in the code block below as the goal for a Claude Code session opened in this repo.
 
+**Status (2026-10-24):** Phases 1-3 written + tested offline, Phase 4 network side done. Rooms hold 8 players.
+Start from `HANDOFF.md`, `docs/progress.md` and `docs/local_checklist.md` instead of building Phase 1 again.
+
 ```
 GOAL
 Build working online multiplayer for Pokémon Radical Red (FireRed v1.0 base,
 ROM sha1 964f951a0fdaf209e4ea1344883ef0d557bb3a80) running in mGBA 0.10.5,
-using an mGBA Lua client + a relay server. Work autonomously phase by phase
+using an mGBA Lua client + a relay server, rooms of up to 8 players. Work autonomously phase by phase
 until the Definition of Done is met or you hit a STOP condition.
 
 READ FIRST (source of truth, keep them updated)
@@ -14,6 +17,8 @@ READ FIRST (source of truth, keep them updated)
 - docs/ram_map.md      - VERIFIED addresses + how they were verified
 - docs/protocol.md     - wire protocol (create in Phase 1 if missing)
 - docs/progress.md     - running log: what is done / verified / assumed / next
+- docs/local_checklist.md - in-emulator verification steps (start here)
+- docs/phase4_battle.md   - battle engine research plan
 
 KNOWN FACTS (verified in Phase 0 - don't re-derive)
 - Party data on Radical Red is UNENCRYPTED: 100-byte struct, checksum field 0,
@@ -72,9 +77,9 @@ STOP AND ASK ME BEFORE
 - deleting files outside work/, or any action outside this folder
 
 DEFINITION OF DONE
-- 2 (then 4) clients on different machines join a room, see each other move,
+- 2 (then up to 8) clients on different machines join a room, see each other move,
   trade a Pokémon, and finish 20 consecutive 6v6 battles with zero desyncs.
 - Killing a client mid-trade never duplicates or deletes a Pokémon.
-- 2-hour 4-client soak test with random disconnects: no crash, no save damage.
+- 2-hour 8-client soak test with random disconnects: no crash, no save damage.
 - README gets a non-programmer running server + client in under 10 minutes.
 ```

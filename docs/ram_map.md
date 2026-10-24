@@ -34,6 +34,18 @@ mons** (check in Phase 3).
 - Whether Radical Red's added Mega/Z/Dynamax-style state lives outside the 100-byte struct (affects PvP)
 - PC box mon format and trainer name/ID fields for trade validation
 
+## mGBA 0.10 scripting API facts (read from mGBA 0.10 source by the cloud session, not yet re-checked live)
+- `socket.connect(host, port)` returns the socket, or `nil, err`. On success the wrapper registers a frame
+  callback that polls the socket every frame (`socket:poll()` → `select(0)`), dispatching `received`/`error`.
+- Socket callbacks are invoked as `cb(socket, ...)`; the `error` callback gets `(socket, errString)`.
+- `receive(n)` returns data, or `nil, "disconnected"` when the peer closed (fires every frame → close it),
+  or `nil, socket.ERRORS[code]`; would-block is `"temporary failure"` (not `"again"`).
+- `send(data)` returns bytes written or `nil, err`.
+- `emu:checksum([type])` defaults to CRC32 and returns 4 bytes big-endian. `emu:readRange(addr, len)` returns
+  a string. Callbacks available: `frame`, `start`, `reset`, `shutdown`, `keysRead`, ...
+- Text buffers: `clear, print, setSize, moveCursor, advance, setName, getX/getY, cols/rows`.
+- mGBA 0.10 Qt has **no `--script` command-line option**; scripts are loaded from the Scripting window.
+
 ## Tooling status
 - mGBA Lua scripting works. `socket` API works: `socket.connect(host, port)` -> object with `send`, `receive`,
   `add("received"|"error", cb)`. Round-trip with a Python TCP server verified. After the peer closes, the `received`
