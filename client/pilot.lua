@@ -1,7 +1,7 @@
 -- Test-harness autopilot: runs button/state commands from work/pilot.txt inside the emulator.
 -- File format: first line "id <number>" (re-run when it changes), then one command per line:
 --   HOLD <KEY> <frames>   WAIT <frames>   MASH <KEY> <frames>   SAVE <slot>   LOAD <slot>
--- KEY: A B START SELECT UP DOWN LEFT RIGHT L R.  Writes work/pilot_done.txt "<id>" when finished.
+-- KEY: A B START SELECT UP DOWN LEFT RIGHT L R, or several joined by + (HOLD B+LEFT 64 = run left).  Writes work/pilot_done.txt "<id>" when finished.
 -- Set the global PILOT_FILE (e.g. "pilot2.txt") in the console before loading to drive a second window.
 local function workDir()
   if RRMP_WORK then return (RRMP_WORK:gsub("\\", "/"):gsub("/?$", "/")) end
@@ -13,6 +13,14 @@ local BIT = { A = 0, B = 1, SELECT = 2, START = 3, RIGHT = 4, LEFT = 5, UP = 6, 
 
 local lastId, queue, cur, frame, doneId = nil, {}, nil, 0, nil
 
+local function keyMask(spec)
+  local mask = 0
+  for k in (spec or ""):gmatch("[^+]+") do
+    if BIT[k] then mask = mask | (1 << BIT[k]) else console:log("pilot: unknown key " .. k) end
+  end
+  return mask
+end
+
 local function load()
   local f = io.open(DIR .. (PILOT_FILE or "pilot.txt"), "r")
   if not f then return end
@@ -22,7 +30,7 @@ local function load()
   lastId, queue, cur = id, {}, nil
   for line in text:gmatch("[^\r\n]+") do
     local op, a, b = line:match("^(%u+)%s*(%S*)%s*(%S*)")
-    if op and op ~= "ID" then queue[#queue + 1] = { op = op, a = a, b = b } end
+    if op and op ~= "ID" then queue[#queue + 1] = { op = op, a = a, b = b, keys = keyMask(a) } end
   end
   console:log("pilot: loaded id " .. id .. " (" .. #queue .. " cmds)")
 end
@@ -46,9 +54,9 @@ callbacks:add("frame", function()
   end
   if cur then
     cur.t = cur.t + 1
-    if cur.op == "HOLD" then emu:setKeys(1 << BIT[cur.a]); if cur.t >= tonumber(cur.b) then emu:setKeys(0); cur = nil end
+    if cur.op == "HOLD" then emu:setKeys(cur.keys); if cur.t >= tonumber(cur.b) then emu:setKeys(0); cur = nil end
     elseif cur.op == "MASH" then
-      if (cur.t // 3) % 2 == 0 then emu:setKeys(1 << BIT[cur.a]) else emu:setKeys(0) end
+      if (cur.t // 3) % 2 == 0 then emu:setKeys(cur.keys) else emu:setKeys(0) end
       if cur.t >= tonumber(cur.b) then emu:setKeys(0); cur = nil end
     elseif cur.op == "WAIT" then if cur.t >= tonumber(cur.a) then cur = nil end
     else cur = nil end
