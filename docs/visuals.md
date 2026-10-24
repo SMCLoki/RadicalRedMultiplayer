@@ -65,6 +65,9 @@ the script checks them before writing anything.
   the same map.
 
 ## Real-emulator verification (for the local session)
+
+> 2026-10-24: steps 1, 2, 4 and 5 passed; step 3 passed for walking and warping (running/ledges untested).
+> Battle-and-return and step 6 still open. Details in progress.md.
 1. Two windows on the same map, script loaded in both. Panel line `Visuals: on (1 on this map, ...)`; if it
    says `off:`/`paused:`, `mp.vis()` shows why and the addresses in use.
 2. Take a step in each window: the other player appears where they stand, with your sprite.

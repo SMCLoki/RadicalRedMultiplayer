@@ -2,6 +2,7 @@
 -- File format: first line "id <number>" (re-run when it changes), then one command per line:
 --   HOLD <KEY> <frames>   WAIT <frames>   MASH <KEY> <frames>   SAVE <slot>   LOAD <slot>
 -- KEY: A B START SELECT UP DOWN LEFT RIGHT L R.  Writes work/pilot_done.txt "<id>" when finished.
+-- Set the global PILOT_FILE (e.g. "pilot2.txt") in the console before loading to drive a second window.
 local function workDir()
   if RRMP_WORK then return (RRMP_WORK:gsub("\\", "/"):gsub("/?$", "/")) end
   local src = debug.getinfo(1, "S").source:gsub("^@", ""):gsub("\\", "/")
@@ -13,7 +14,7 @@ local BIT = { A = 0, B = 1, SELECT = 2, START = 3, RIGHT = 4, LEFT = 5, UP = 6, 
 local lastId, queue, cur, frame, doneId = nil, {}, nil, 0, nil
 
 local function load()
-  local f = io.open(DIR .. "pilot.txt", "r")
+  local f = io.open(DIR .. (PILOT_FILE or "pilot.txt"), "r")
   if not f then return end
   local text = f:read("*a"); f:close()
   local id = text:match("^id%s+(%S+)")
@@ -27,7 +28,7 @@ local function load()
 end
 
 local function finish()
-  local f = io.open(DIR .. "pilot_done.txt", "w"); if f then f:write(lastId); f:close() end
+  local f = io.open(DIR .. (PILOT_FILE or "pilot.txt"):gsub("%.txt$", "") .. "_done.txt", "w"); if f then f:write(lastId); f:close() end
 end
 
 callbacks:add("frame", function()
@@ -53,4 +54,4 @@ callbacks:add("frame", function()
     else cur = nil end
   end
 end)
-console:log("pilot.lua loaded; watching " .. DIR .. "pilot.txt")
+console:log("pilot.lua loaded; watching " .. DIR .. (PILOT_FILE or "pilot.txt"))

@@ -121,3 +121,21 @@ Both windows start with the same Chikorita, so window 2's PID was edited in RAM 
   untouched, validation failure -> nothing written, disabled). These run against `tools/fake_overworld.py`,
   a model of the engine built from the decomp, NOT the real ROM. Real-emulator check: TODO (docs/visuals.md).
 
+
+## 2026-10-24 - real mGBA run 3 (local): player visuals (commit a8f2074)
+
+Two windows in Oak's lab (map 4.3), autopilot in both (`PILOT_FILE="pilot2.txt"` set in window 2's console first;
+`pilot.lua` now takes that global and writes `<file>_done.txt`).
+
+- Address check passed on the real ROM: "visuals: addresses validated".
+- **Spawn works:** after a step, each window draws the other player as a Red NPC on the right tile and facing.
+- **Walking works:** the puppet walked the same 4-step loop in real time (seen mid-walk on the doormat) and stopped
+  on the matching tile.
+- **Leaving/entering works:** when Player1 walked outside (map 3.0), window 2's puppet vanished ("0 drawn"); walking
+  back in, window 2 drew it on the doormat immediately. Window 1 drew Player2 again after its next step, as documented.
+- **Start menu works:** with window 1's start menu open, the puppet stayed visible; after closing, both screens matched.
+- **Script reload works:** reloading rr_mp.lua in window 1 left exactly one puppet (old instance cleaned up).
+- Side note: mGBA pauses emulation while its own file dialog is open, so loading a second script can idle the client
+  long enough for a server `timeout`; it reconnects by itself.
+- Not tested yet: running (pilot holds one key at a time), ledges, battle-and-return, `puppet_gfx=remote`,
+  real NPCs unaffected over a long session.
