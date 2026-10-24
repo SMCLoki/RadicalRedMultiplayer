@@ -272,3 +272,28 @@ pass 5/5 runs; three control tests show a desync with each protection switched o
 If a deterministic per-side difference remains (RR's closed changes), the structural answer is the link battle
 mode; see docs/phase4_battle.md "Option A".
 
+
+## 2026-10-24 - real mGBA run 7 (local): dummy AI controller + lag guard (cc8efa7)
+
+Setup as run 6 (2 Chikorita each, window 2 Speed 30). `battle_trace.lua` in both windows; traces in
+`docs/evidence_btrace_run7_window1/2.txt`.
+
+- **Opponent hold works:** battler 1's controller sits on BattleControllerDummy (`f1=0802E311`, 17/18 trace lines)
+  during choice, then is released (`08035A99`); the opponent's turn never froze. No "BattleControllerDummy not found".
+- **Still desyncs after turn 1.** `compare_traces.py` only reports the battle-end step
+  (`('08015B59','081D886E',1) only in window 1: script paths differ`) - the real divergence is earlier:
+  - Turn order is right in both (Player2, Speed 30, moves first).
+  - Window 1: Player2 (opponent side) hits for 8, Player1 (player side) for 4.
+    Window 2: Player2 (player side) hits for 4, Player1 (opponent side) for 9.
+    The opponent side's hit is a crit in both games: base damage 10 vs 5 at instr 081D6932.
+  - Timing: for the opponent-side attacker, 081D6926 -> 081D6932 takes ~370 frames (window 1: 2391 -> 2764,
+    window 2: 3171 -> 3545; the "X used Tackle!" message) versus ~8 frames for the player side. Those are exec != 0
+    frames the lock leaves alone, and VBlankCB_Battle advances gRngValue once per frame (measured in run 6), so the crit
+    roll right after the message uses a drifted, unlocked value.
+  - **Suggested fix:** cancel the VBlank Random() every battle frame from the frame callback
+    (`x = ((x - 0x6073) * 0xEEB9EB65) & 0xFFFFFFFF`; verified in run 6 to give 0 steps/frame when idle, i.e. the frame
+    callback runs before the VBlank handler), so no time-based drift exists at all; keep the logical-position seeding.
+- Trace note: the `crit` field (0x02023D71) is 10 on every line, so that address is not the crit multiplier on RR.
+- `compare_traces.py` should report the first differing dmg/hp per (main, instr, occurrence) step, not only path
+  differences.
+- Not reached yet: a faint replacement and a natural winner.
