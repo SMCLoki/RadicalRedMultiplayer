@@ -15,9 +15,10 @@ A cloud Claude session did the heavy lifting that doesn't need the emulator; you
 
 **Current focus: `docs/beta_checklist.md` - one real-mGBA pass to confirm the beta.**
 
-Status in one line: Phases 1-3 are written and pass automated tests (server real, client in a modelled mGBA);
-none of it has run in the real emulator yet. Phase 4 has the network side done; the game-engine hooks are
-open research. Start with `docs/local_checklist.md` §0-§1.
+Status: verified in real mGBA - connecting, presence, player characters on the map, chat, console trading
+(incl. crash recovery), PvP battle start/turn sync/switching/forfeit/restore. Fixed but not yet re-tested in the
+real game - PvP desync from the opponent-side Z-Move (d6a72b1); new and untested - talk to a player to
+trade/battle through the game's menus (9f0930f). Known limit: an exact speed tie desyncs a battle.
 
 Local-only files (gitignored, never push): `work/rr.gba`, `work/rr2.gba` (ROM copies), `work/rr.ss1-3`,
 `work/states/*.ss` (lab_after_starter, overworld_lab, rival_battle_menu), `work/mp_*` (client config,
