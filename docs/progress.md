@@ -371,3 +371,21 @@ player who presses the Z button gets the same on both machines.
 - `tools/fake_script.py` interprets the script opcodes used; `tests/test_talk.py` (3 tests: trade, battle,
   cancel/exit) passes 3/3 runs. All suites pass. Not yet run in the real game.
 
+## 2026-10-24 - report on the 250898f battles (run 8 traces, per battle)
+Source: the local session's real-mGBA battles 8 and 9 on 250898f with `client/battle_trace.lua` in both windows
+(`docs/evidence_btrace_run8_window1/2.txt` = the two windows' `work/btrace_pilot*.txt`), split per battle and compared
+with the current `tools/compare_traces.py`.
+1. **compare_traces.py, battle 8:** RNG lock held at every common exec=0 step; no statStages difference (the only
+   turn-start battle-data difference is HP at turn 2: side 0 0x0b vs 0x10, side 1 0x10 vs 0x0c); first damage/HP
+   difference at the step 0x0900188A with equal RNG (709FC712). **Battle 9:** same picture (equal RNG 370CBA13;
+   HP 0x0c vs 0x10 / 0x10 vs 0x0b at turn 2; no statStages difference).
+2. **0x0900188A still appears:** once per battle in each window (15-16 lines of the 0x090018xx script), always before
+   the opponent side's first move. Run 8 identified it on screen as the Z-Move intro ("surrounded itself with its
+   Z-Power!").
+3. **Opponent hold:** f1=0802E311 on every choice line where both sides are choosing (exec=3: 14/14 in each battle,
+   each window). On exec=2 lines (only the opponent still pending, after the remote reply was written) the controller
+   is the real one (0x08035A99) by design - that is the moment the reply is consumed.
+4. **Sync:** neither battle stayed in sync past turn 1, so the faint replacement and natural winner could not be
+   tested on 250898f. Cause: the Z-Move from stale bytes 4-7 of CFRU's 8-byte move reply, fixed in d6a72b1 (not yet
+   run in the real game). Next real-game step: `docs/beta_checklist.md` section 1.
+
