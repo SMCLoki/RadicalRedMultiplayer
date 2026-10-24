@@ -43,6 +43,12 @@ an ordinary single battle where the local player is battler 0 and the other play
 - **Hash**: FNV-1a over both active mons (species, HP, max HP, PP, stat stages, status1), side 0 first on both
   machines, sent with each round's choice; the server ends the battle with `desync` on mismatch.
 
+**Parking battler 1** (after run 6): instead of re-setting its exec bit every frame, battler 1's controller is set
+to BattleControllerDummy while it owes us a choice, so CFRU's AI never runs (no prediction side effects) and the hold
+can't race the frame callback. **Lag guard**: on frames where the play-time counter didn't advance (callback fired
+mid game loop) the engine only rewinds the RNG by one step to cancel VBlank's Random(). Diagnose remaining desyncs
+with `client/battle_trace.lua` + `tools/compare_traces.py`.
+
 **End**: gBattleOutcome 1/2 → winner reported to the server. If the server ends the battle first (forfeit,
 disconnect, timer, desync) the engine writes the outcome so the game ends at the next action check. When the
 game is back on the map (callback2 = CB2_Overworld, flags 0) it restores the party (rr_mp backup), money,

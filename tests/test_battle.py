@@ -165,14 +165,26 @@ class BattleTest(unittest.TestCase):
         for g in (a, b):
             self.assert_restored(g)
 
-    def test_without_rng_lock_animations_desync(self):
-        # Control for the fix: VBlank Random() + side-dependent animation lengths (real mGBA run 5) make
-        # time-based seeding drift; with rng_lock=0 the same battle as test_full_battle_stays_in_sync desyncs.
-        a = self.client("Red", 5, [mon(1, 152, 60), mon(2, 25, 55)], extra={"rng_lock": "0"})
-        b = self.client("Blue", 8, [mon(3, 4, 40), mon(4, 7, 35)], extra={"rng_lock": "0"})
+    def control(self, extra):
+        """Same long battle with one protection switched off: must end in desync, proving the fake reproduces
+        the problem that protection fixes."""
+        a = self.client("Red", 5, [mon(1, 152, 60, hp=150), mon(2, 25, 55, hp=150)], extra=extra)
+        b = self.client("Blue", 8, [mon(3, 4, 40, hp=150), mon(4, 7, 35, hp=150)], extra=extra)
         self.start(a, b)
-        self.until(lambda: self.finished(a, b), msg="ended")
+        self.until(lambda: self.finished(a, b), frames=20000, msg="ended")
         self.assertEqual(list(self.srv.server.battle_log.read())[-1]["reason"], "desync")
+
+    def test_control_without_rng_lock(self):
+        # VBlank Random() + side-dependent animation lengths (real mGBA run 5)
+        self.control({"rng_lock": "0"})
+
+    def test_control_without_lag_guard(self):
+        # frame callback landing mid-logic on the side that lags (player-side attacker's damage calculation)
+        self.control({"lag_guard": "0"})
+
+    def test_control_without_parking(self):
+        # the AI runs (and leaves prediction side effects) only on the machine where that Pokémon is the opponent
+        self.control({"controller_dummy": "0"})
 
     def test_speed_tie_is_detected_as_desync(self):
         # Battler-index tie breaks run mirrored on the two machines (docs/phase4_battle.md, "known limit"):

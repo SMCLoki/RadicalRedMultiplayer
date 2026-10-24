@@ -16,6 +16,14 @@ client/rr_battle.lua. Follows pret/pokefirered battle_main.c where the engine de
   gBattleBufferB[b][1] when byte 0 is CHOSENMONRETURNVALUE, else uses gBattleStruct->monToSwitchIntoId
 - end: gBattleOutcome, flags cleared, callback2 = savedCallback, then back to CB2_Overworld
 
+- the game loop: VBlankIntr's Random() runs after mGBA's frame callback (i.e. at the start of our next step);
+  the play-time counter (SaveBlock2+0x12) advances once per finished loop iteration; a "lag" frame (damage
+  calculation of a player-side attacker, heavier animations) is split across the frame callback, so the callback
+  and the VBlank Random() land in the middle of the logic
+- controller dispatch through gBattlerControllerFuncs (BattleControllerDummy = bx lr at 0x0802E310 does
+  nothing), and an AI side effect like CFRU's predictions: every AI decision leaves a damage bonus in a global
+  that the next attack uses, so running the AI on only one machine desyncs
+
 It is a test double built from the decomp, not the real engine (no abilities, types, items or status).
 """
 from __future__ import annotations
@@ -30,6 +38,7 @@ CB_OVERWORLD, CB_INIT, CB_BATTLE = 0x080565B5, 0x0800FD9D, 0x08011101
 SEL, ORDER, RUN, END = 0x08014041, 0x080150A9, 0x080154A1, 0x08015A31
 CHOOSEACTION, CHOOSEMOVE, CHOOSEPOKEMON, TWO, CHOSENMON, MOVEANIMATION = 18, 20, 22, 33, 34, 14
 SB_SIZE = 0x1000
+FUNCS, DUMMY, OPP_RUN, AI_GLOBAL, INTRCHECK = 0x03004FE0, 0x0802E311, 0x08035A99, 0x02023D50, 0x030030F0 + 0x1C
 
 
 class FakeBattle:
@@ -47,6 +56,13 @@ class FakeBattle:
         self.w(SB2PTR, 4, 0x02028000)
         self.w(BS_PTR, 4, BS_ADDR)
         self.battles = 0
+        self.lag_model = True
+        self.lag_frames = 0
+        self.in_battle_prev = False
+        self.split = None
+        self.w(0x0802E310, 2, 0x4770)            # BattleControllerDummy: bx lr
+        self.w(FUNCS, 4, 0x0802E3B5)             # player controller
+        self.w(FUNCS + 4, 4, OPP_RUN)            # opponent controller
         gba.pre_frame.append(self.step)
 
     # -- helpers -----------------------------------------------------------
@@ -124,12 +140,23 @@ class FakeBattle:
     # -- frame -------------------------------------------------------------
     def step(self):
         cb2 = self.r(GMAIN + 4, 4)
+        if self.in_battle_prev:
+            self.rand()  # VBlank after the previous frame callback (VBlankCB_Battle: "Change gRngSeed every vblank")
+        self.in_battle_prev = self.state == "battle"
+        finished = True
         if self.state == "field" and cb2 == CB_INIT:
             self.start()
         elif self.state == "battle":
-            self.main()
-            self.controllers()
-            self.rand()  # VBlankCB_Battle: "Change gRngSeed every vblank"
+            if self.split:                          # second half of an iteration that overran the last frame
+                self.finish_action(*self.split)
+                self.split = None
+            else:
+                self.main()
+            if self.split:
+                finished = False                    # this iteration is still running when the frame callback fires
+                self.lag_frames += 1
+            else:
+                self.controllers()
         elif self.state == "ending":
             self.timer -= 1
             if self.timer <= 0:
@@ -142,6 +169,9 @@ class FakeBattle:
                 self.move_save_blocks()                      # InitOverworldBgs moves them too
                 self.w(GMAIN + 4, 4, CB_OVERWORLD)
                 self.state = "field"
+        if finished:
+            sb2 = self.r(SB2PTR, 4)
+            self.w(sb2 + 0x12, 1, (self.r(sb2 + 0x12, 1) + 1) & 0xFF)   # PlayTimeCounter_Update
 
     def start(self):
         self.battles += 1
@@ -224,13 +254,6 @@ class FakeBattle:
             if self.order:
                 act = self.order.pop(0)
                 self.do_action(act)
-                if self.r(OUTCOME, 1):
-                    self.finish()
-                    return
-                # move animation, drawn on the attacker's side: longer, with particles, on the player side
-                b = act[1]
-                self.anim = {"b": b, "left": self.frames_per_action + (3 if b == 0 else 0)}
-                self.send(b, MOVEANIMATION)
                 return
             self.after_turn()
         elif f == 0x08000001:  # waiting for replacement choices (battle script openpartyscreen + switchhandleorder)
@@ -269,9 +292,21 @@ class FakeBattle:
             return
         if self.r(self.mon(b) + 0x28, 2) == 0:
             return
+        crit = self.rand() % 8 == 0
+        if self.lag_model and b == 0:
+            self.split = (act, crit)                 # the damage roll happens after the frame boundary
+            return
+        self.finish_action(act, crit)
+
+    def finish_action(self, act, crit):
+        _, b, kind, val = act
         target = 1 - b
         move = self.r(self.mon(b) + 0x0C + 2 * val, 2)
         dmg = (10 + move % 20) * (85 + self.rand() % 16) // 100
+        if b == 1 and self.r(AI_GLOBAL, 1):            # AI prediction state left behind for the battler it ran for
+            dmg += 1
+        dmg = dmg * (2 if crit else 1)
+        self.w(AI_GLOBAL, 1, 0)
         hp = max(0, self.r(self.mon(target) + 0x28, 2) - dmg)
         self.w(self.mon(target) + 0x28, 2, hp)
         self.log.append(f"b{b} move {move} -> b{target} hp {hp}")
@@ -279,6 +314,12 @@ class FakeBattle:
             self.save_battler(target)
             if not self.alive(target):
                 self.w(OUTCOME, 1, 2 if target == 0 else 1)
+        if self.r(OUTCOME, 1):
+            self.finish()
+            return
+        # move animation, drawn on the attacker's side: longer, with particles, on the player side
+        self.anim = {"b": b, "left": self.frames_per_action + (3 if b == 0 else 0)}
+        self.send(b, MOVEANIMATION)
 
     def after_turn(self):
         self.save_battler(0)
@@ -317,7 +358,7 @@ class FakeBattle:
             return
         if self.exec_bit(0):
             self.player()
-        if self.exec_bit(1):
+        if self.exec_bit(1) and self.r(FUNCS + 4, 4) != DUMMY:
             self.ai()
 
     def player(self):
@@ -341,6 +382,8 @@ class FakeBattle:
     def ai(self):
         cmd = self.r(self.bufa(1), 1)
         b1 = self.bufb(1)
+        if cmd in (CHOOSEACTION, CHOOSEMOVE):
+            self.w(AI_GLOBAL, 1, 1)                  # side effect of the AI's damage predictions
         if cmd == CHOOSEACTION:
             self.w(b1, 4, TWO | ((2 if self.rand() % 4 == 0 and len(self.alive(1)) > 1 else 0) << 8))
         elif cmd == CHOOSEMOVE:

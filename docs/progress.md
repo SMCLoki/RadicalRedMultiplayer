@@ -244,3 +244,31 @@ damage code may only exclude LINK), and trainer-AI item use for the opponent sid
 blocked by overwriting the action byte. Either way each game treats "its" player differently from the opponent,
 so Option B can't be fully symmetric - this points to Option A (link battle mode, both games run battler 0 = master).
 Not tested yet: a faint/replacement round and a battle reaching a natural winner (desync always came first).
+
+## 2026-10-24 - cloud: response to run 6 (side asymmetry)
+Analysis of run 6 (`docs/evidence_bdbg_run6_*`): battle 5's extra 400 frames and full heal fit Player1's Oran Berry
+(it triggers at <= half HP, so after a bigger hit on the opponent side), i.e. the root symptom is the damage roll:
+the player side dealt more (5 vs 4). Open-source CFRU has no player-side damage bonus for EREADER battles (badge
+boosts are excluded) and the roll uses Random(), so two engine-side causes were fixed and a third is diagnosable:
+1. **CFRU AI side effects.** The old hold re-ran battler 1's AI every frame; CFRU's AI_TrySwitchOrUseItem /
+   BattleAI_SetupAIData temporarily Mega Evolve all battlers, compute damage predictions and set switch/item state,
+   only on the machine where that Pokémon is the opponent. Now battler 1 is **parked**: when the main loop is about
+   to ask it for a choice (selection state 0) its controller function (gBattlerControllerFuncs[1], 0x03004FE4) is
+   set to BattleControllerDummy (0x0802E310, `bx lr`), so the AI never runs for choices we answer; the engine writes
+   the reply, clears the exec bit and restores the controller after the last stage. No race with the frame callback
+   either. Falls back to the old exec-flag hold if the dummy isn't a `bx lr` (`controller_dummy=0` forces that).
+2. **Lag frames.** `VBlankIntr` also calls Random() and mGBA's frame callback fires mid-logic when a frame overruns
+   (animations), so the RNG lock (and the hold) could write in the middle of a command on only one machine. The engine
+   now detects a mid-iteration callback with the play-time counter (SaveBlock2+0x10, advances once per finished game
+   loop): on such frames it touches nothing and rewinds the RNG by `vblank_rng_steps` (default 1, run-6 measurement)
+   to cancel the VBlank call. `lag_guard=0` turns it off.
+3. **Diagnosis if it still desyncs:** `client/battle_trace.lua` logs every battle-script step (gBattleMainFunc +
+   gBattlescriptCurrInstr) with RNG, gBattleMoveDamage, crit, attacker/target, HP and lag frames;
+   `tools/compare_traces.py w1.txt w2.txt` aligns the two windows and prints the first differing step and what it
+   means (lock not holding vs deterministic per-side difference vs different script paths).
+Tests: `tools/fake_battle.py` now models VBlank Random() after the callback, the play-time counter, lag frames that
+split a damage calculation, controller dispatch with the dummy, and battler-specific AI side effects. 7 battle tests
+pass 5/5 runs; three control tests show a desync with each protection switched off (rng_lock, lag_guard, parking).
+If a deterministic per-side difference remains (RR's closed changes), the structural answer is the link battle
+mode; see docs/phase4_battle.md "Option A".
+

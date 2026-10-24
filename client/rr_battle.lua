@@ -32,7 +32,7 @@ function _RRMP_BATTLE_NEW(env)
     bufA = 0x02022BC4, bufB = 0x020233C4, mons = 0x02023BE4, comm = 0x02023E82, outcome = 0x02023E8A,
     chosenAction = 0x02023D7C, rng = 0x03005000, enemyParty = 0x0202402C, enemyCount = 0x0202402A,
     trainerA = 0x020386AE, sb1Ptr = 0x03005008, sb2Ptr = 0x0300500C, objEvents = 0x02036E38,
-    battleStructPtr = 0x02023FE8, scriptInstr = 0x02023D74,
+    battleStructPtr = 0x02023FE8, scriptInstr = 0x02023D74, controllerFuncs = 0x03004FE0,
   }
   local BS_MON_TO_SWITCH = tonumber(cfg.bs_mon_to_switch or "") or 0x5C  -- gBattleStruct->monToSwitchIntoId
   local CB_OVERWORLD = tonumber(cfg.cb_overworld or "") or 0x080565B5
@@ -226,7 +226,66 @@ function _RRMP_BATTLE_NEW(env)
 
   local function stall() w32(A.execFlags, r32(A.execFlags) | 0x2) end
 
+  -- Parking battler 1: while its controller function is BattleControllerDummy (a bare `bx lr`), a command
+  -- sent to it is never answered, so the main loop / battle script waits on its own - no race with the frame
+  -- callback, and CFRU's AI (temporary Mega Evolution, damage predictions, switch/item state) never runs for
+  -- the choices we answer ourselves. Falls back to stall() if the dummy isn't where vanilla FR has it.
+  local DUMMY = tonumber(cfg.controller_dummy or "") or 0x0802E311   -- controller_dummy=0 disables parking
+  local dummyOk   -- checked on first use: the routine must be a bare `bx lr`
+  local function dummyAvailable()
+    if dummyOk == nil then
+      dummyOk = DUMMY >= 0x08000000 and DUMMY < 0x0A000000 and emu:read16(DUMMY - 1) == 0x4770
+      if not dummyOk then log("battle: BattleControllerDummy not found, using the exec-flag hold") end
+    end
+    return dummyOk
+  end
+  local FUNC1 = A.controllerFuncs + 4
+
+  local function park(c)
+    if not dummyAvailable() then return false end
+    local f = r32(FUNC1)
+    if f ~= DUMMY then c.savedFunc1 = f; w32(FUNC1, DUMMY) end
+    return true
+  end
+
+  local function unpark(c)
+    if r32(FUNC1) == DUMMY and c.savedFunc1 then w32(FUNC1, c.savedFunc1) end
+  end
+
+  local function parked() return dummyAvailable() and r32(FUNC1) == DUMMY end
+
+  -- answer battler 1's pending command ourselves (what OpponentBufferExecCompleted does after the AI)
+  local function answer(stage, d)
+    writeRemoteReply(stage, d)
+    w32(A.execFlags, r32(A.execFlags) & ~0x2)
+  end
+
+  local function isDecision(cmd) return cmd == CMD_ACTION or cmd == CMD_MOVE or cmd == CMD_POKEMON end
+
+  -- Lag: when a frame overruns, mGBA's frame callback fires in the middle of the game's main loop. Writing
+  -- battle state then races the game, and the VBlank Random() lands mid-logic. The play-time counter
+  -- (SaveBlock2+0x10..0x13) advances once per finished main-loop iteration; if it didn't move since the last
+  -- callback, the game is mid-iteration: touch nothing, just cancel the VBlank Random() call(s).
+  local VBLANK_STEPS = tonumber(cfg.vblank_rng_steps or "") or 1
+  local function rngPrev(x) return ((x - 0x6073) * 0xEEB9EB65) & 0xFFFFFFFF end
+
+  local function lagging(c)
+    local pt = r32(r32(A.sb2Ptr) + 0x10)
+    local f = env.frame()
+    local lag = pt == c.lastPlayTime and f - (c.ptMovedAt or -100) <= 3   -- a stopped timer is not lag
+    if pt ~= c.lastPlayTime then c.ptMovedAt = f end
+    c.lastPlayTime = pt
+    return lag and cfg.lag_guard ~= "0"
+  end
+
   local function battleFrame(c)
+    if lagging(c) then
+      local x = r32(A.rng)
+      for _ = 1, VBLANK_STEPS do x = rngPrev(x) end
+      if cfg.rng_lock ~= "0" then w32(A.rng, x) end
+      c.lagFrames = (c.lagFrames or 0) + 1
+      return
+    end
     local main = r32(A.mainFunc)
     local exec = r32(A.execFlags)
     local st0, st1 = r8(A.comm), r8(A.comm + 1)
@@ -255,6 +314,7 @@ function _RRMP_BATTLE_NEW(env)
 
     if rd then
       local remote = c.aborted and { k = "ai" } or remoteFor(c, rd)
+      if remote and remote.k == "ai" then unpark(c) end
       if rd.kind == "turn" then
         -- local choice is final once battler 0's selection state passes "case chosen"
         if not rd.decision and (st0 == 3 or st0 == 4) then
@@ -262,12 +322,24 @@ function _RRMP_BATTLE_NEW(env)
           if act == 2 then rd.decision = { k = "s", i = r8(A.bufB + 1) }
           else rd.decision = { k = "m", s = r8(A.bufB + 2), t = r8(A.bufB + 3) } end
         end
-        -- battler 1: hold until the remote choice is known, then answer each stage with it
-        if st1 == 1 or st1 == 2 then
-          if not remote then stall()
-          elseif remote.k ~= "ai" then writeRemoteReply(st1 == 1 and "action" or "case", remote) end
+        -- battler 1: park before the main loop sends CHOOSEACTION, answer each stage with the remote choice
+        if st1 == 0 and not (remote and remote.k == "ai") then park(c) end
+        if (st1 == 1 or st1 == 2) and not (remote and remote.k == "ai") then
+          local stage = st1 == 1 and "action" or "case"
+          if parked() and exec & 2 ~= 0 and isDecision(cmd1) then
+            if remote then
+              answer(stage, remote)
+              if st1 == 2 then unpark(c) end
+            end
+          elseif not remote then
+            stall()                                -- fallback: no dummy, or the park window was missed
+          else
+            writeRemoteReply(stage, remote)
+          end
         end
+        if st1 >= 3 then unpark(c) end             -- standby message etc. need the real controller
         if main ~= MAIN_SELECT and c.prevMain == MAIN_SELECT then
+          unpark(c)
           c.round = nil
           c.clearReplyMark = true
         end
@@ -277,9 +349,12 @@ function _RRMP_BATTLE_NEW(env)
         end
         if rd.askedRemote and not rd.applied then
           if not remote then
-            stall()
+            -- the AI answered once already; hold the script by marking battler 1 busy again
+            if park(c) then w32(A.execFlags, r32(A.execFlags) | 0x2) else stall() end
           else
             if remote.k == "r" then writeRemoteReply("replace", remote) end
+            w32(A.execFlags, r32(A.execFlags) & ~0x2)
+            unpark(c)
             rd.applied = true
           end
         end
@@ -288,6 +363,8 @@ function _RRMP_BATTLE_NEW(env)
           c.clearReplyMark = true
         end
       end
+    elseif parked() and not isDecision(cmd1) then
+      unpark(c)                                    -- never leave battler 1 parked outside a decision
     end
     c.prevMain = main
     if cfg.rng_lock ~= "0" then lockRng(c, main) end
@@ -299,6 +376,7 @@ function _RRMP_BATTLE_NEW(env)
       else c.winner = false end
     end
   end
+  E.unparkAll = function() if E.cur then unpark(E.cur) end end
 
   ------------------------------------------------------------------------------------------------
   -- rr_mp engine interface
@@ -348,6 +426,7 @@ function _RRMP_BATTLE_NEW(env)
     if not c then return false end
     if c.phase == "waiting" then E.cur = nil; os.remove(backupPath()); return false end
     c.aborted = true
+    E.unparkAll()
     if r8(A.outcome) == 0 and r32(A.battleFlags) ~= 0 then
       -- the battle ended on the server (forfeit, disconnect, desync, timer): end it in the game too
       w8(A.outcome, (winner == b.side) and 1 or 2)
