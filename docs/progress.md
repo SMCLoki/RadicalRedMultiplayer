@@ -321,3 +321,30 @@ Next run: the `MONS` diff at turn 2 will show whether battler 1's Attack stage i
 script still runs with the AI fully parked, it is RR trainer logic tied to the opponent side, and the fix is to run
 both games from the same side (the challenger as battler 0 on both machines) - see docs/phase4_battle.md.
 
+
+## 2026-10-24 - real mGBA run 8 (local): VBlank cancel + lag-frame hold (250898f)
+
+Same setup as run 7. Battles 8 and 9, both desync after turn 1. Traces: `docs/evidence_btrace_run8_window1/2.txt`
+(both battles appended in one file each, which confuses `compare_traces.py` - clear the files between battles).
+
+**Cause found on screen:** right before the opponent side's first attack, window 1 shows
+**"The opposing Chikorita surrounded itself with its Z-Power!"** - the RR script 0x0900188A-0x090018B1 is the Z-Move
+intro. The opponent side uses a Z-Move (Z-Tackle = Breakneck Blitz), which is why its damage is doubled (base 10 vs 5)
+in both games. The player side never does (nobody pressed the Z button). So the remote choice is applied as
+"use move slot X" but the opponent controller still turns it into a Z-Move.
+
+Answers to the 4 questions:
+1. `compare_traces.py` (battle 8 alone): RNG lock held at every exec=0 step; turn start #2 battle data differs only in
+   HP (side 0: 0x0b vs 0x10, side 1: 0x10 vs 0x0c); no statStages difference (all stages 6 in the turn dumps). The
+   "first damage/HP difference" it reports (frames 858/941, main 08015B59) is leftover gBattleMons from the previous
+   battle before the new one starts - the tool should ignore steps before the battle-init callbacks.
+2. The 0x0900188A script still appears (16 / 17 lines), once per battle, before the opponent side's first move.
+3. The opponent is held (`f1=0802E311`) on every choice line where both sides are choosing (exec=3, 28 lines per
+   window). On exec=2 lines (only battler 1 pending) it is released to 0x08035A99, where the remote reply is consumed -
+   this release is the likely point where CFRU's opponent controller/AI decides to use the Z-Move.
+4. Not reached (no battle stayed in sync past turn 1).
+
+Suggested fix: when feeding battler 1's reply, also clear CFRU's per-battler Z-Move / Mega / Dynamax "to be used"
+flags for battler 1 (and set them only if the remote decision says so, once the client sends a Z/Mega flag), or make
+the opponent controller's move handler skip the AI's Z decision. The remote action format may need a `z` field so a
+player who presses the Z button gets the same on both machines.
