@@ -78,6 +78,9 @@ See `docs/ram_map.md`. Party structs unencrypted on RR.
   cleared `msg.t`, raising an error on every presence message (console error spam and the rest of that network
   read delayed until the next one). Fixed by reading `msg.t` before calling the handler. 14/14 client tests and
   34/34 server tests pass.
+- New: `client/ramsearch.lua` (console RAM search: narrowing filters, snapshot diffs, watches, gMain callback
+  log) for the Phase 2/4 address hunting; tested in the fake mGBA. All `client/*.lua` are checked for a
+  trailing `return`.
 - Recommendation for the local session: `pip install lupa` (with the user's OK) so `tests/test_client.py`
   actually runs on Windows instead of skipping.
 

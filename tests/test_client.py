@@ -268,16 +268,55 @@ class ClientTest(unittest.TestCase):
 
 
 
+@unittest.skipIf(FakeGBA is None, "lupa not installed (pip install lupa)")
+class RamSearchTest(unittest.TestCase):
+    def test_narrowing_search_snapshots_and_watch(self):
+        work = tempfile.mkdtemp()
+        try:
+            g = FakeGBA(work, script=os.path.join(REPO, "client", "ramsearch.lua"))
+            rs = g.lua.globals().rs
+            target = 0x02024300
+            g.py.write(target, 2, 100)
+            rs.start(2)
+            g.py.write(target, 2, 90)
+            rs.filter(b"dec")
+            rs.filter(b"eq", 90)
+            cand = list(rs.cand.values())
+            self.assertIn(target, cand)
+            g.py.write(target, 2, 80)
+            rs.filter(b"changed")
+            self.assertEqual(list(rs.cand.values()), [target])
+            rs.snap(b"a")
+            g.py.write(0x03001000, 1, 7)
+            rs.snap(b"b")
+            self.assertIn("03001000  00 -> 07", rs.diff(b"a", b"b", 10).decode())
+            rs.watch(target, 2, b"hp")
+            rs.callbacks(True)
+            g.frame()
+            g.py.write(target, 2, 70)
+            g.frame()
+            with open(os.path.join(work, "ramsearch_watch.txt"), encoding="utf-8") as f:
+                log = f.read()
+            self.assertIn("hp 50 -> 46", log)
+            self.assertIn("cb2=", log)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
+
 class ScriptShapeTest(unittest.TestCase):
     """Static checks for mGBA 0.10 quirks found in the real emulator (no lupa needed)."""
 
-    def test_script_does_not_return_values(self):
+    def test_scripts_do_not_return_values(self):
         # mGBA 0.10 runs the script file without popping its return values; a trailing
         # `return M` left a table on the Lua stack and aborted mGBA on the next callback.
-        path = os.path.join(os.path.dirname(__file__), "..", "client", "rr_mp.lua")
-        with open(path, encoding="utf-8") as f:
-            lines = [l for l in f.read().splitlines() if l.strip() and not l.strip().startswith("--")]
-        self.assertFalse(lines[-1].lstrip().startswith("return"), lines[-1])
+        client = os.path.join(REPO, "client")
+        for name in sorted(os.listdir(client)):
+            if not name.endswith(".lua"):
+                continue
+            with open(os.path.join(client, name), encoding="utf-8") as f:
+                lines = [l for l in f.read().splitlines() if l.strip() and not l.strip().startswith("--")]
+            self.assertFalse(lines[-1].lstrip().startswith("return"), f"{name}: {lines[-1]}")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

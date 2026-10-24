@@ -67,6 +67,10 @@ mGBA Lua can only read/write memory and press keys, so a battle has to be starte
   money and bag are not restored. Find which flags suppress rewards (vanilla: `BATTLE_TYPE_LINK`/`FRONTIER`-like).
 
 ## Addresses to find (record each in docs/ram_map.md with evidence)
+Use `client/ramsearch.lua`: `rs.callbacks(true)` logs every gMain callback change with battle flags (the
+battle-start sequence), `rs.start(2)` + `rs.filter("dec")` after taking damage finds HP fields, and
+`rs.snap`/`rs.diff` around choosing Fight vs Switch finds the chosen-action bytes.
+
 | What | How to find |
 |---|---|
 | battle main function pointer (`gBattleMainFunc`) | IWRAM/EWRAM word holding a ROM thumb pointer that changes at turn phases |

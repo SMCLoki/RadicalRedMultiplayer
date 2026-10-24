@@ -34,6 +34,8 @@ python tests\test_client.py         # Lua client end-to-end; skipped unless `pip
    - [ ] reload the script in the same window: no duplicate client (old instance is shut down)
 
 ## 2. Phase 2 presence
+Tool: load `client/ramsearch.lua` in the same Scripting window (commands: `rs.facing()`, `rs.start(size)`,
+`rs.filter(...)`, `rs.list()`, `rs.snap/diff`, `rs.watch`, `rs.callbacks(true)`; output in `work/ramsearch*.txt`).
 - [ ] Walk around: the other panel's `map g.n xX yY` follows, `<< HERE` when on the same map.
 - [ ] Verify facing: `objectEvents[0]+0x18` low nibble while facing down/up/left/right (expect 1/2/3/4).
       Update `sampleState()` and `docs/ram_map.md`.
