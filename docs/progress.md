@@ -363,3 +363,11 @@ player who presses the Z button gets the same on both machines.
 - `tools/compare_traces.py` only looks at the first battle in each file and skips leftover pre-init lines; on the
   run-8 traces it now reports the Z-Move script step (0x0900188A) as the first difference, with equal RNG.
 
+## 2026-10-24 - cloud: talk-to-player menu (beta UX)
+- Pressing A on another player's character now opens the game's own UI: text box, TRADE CENTER / COLOSSEUM /
+  EXIT menu, YES/NO box and party screen (details in docs/visuals.md). Trade: offer via the party screen, the other
+  player answers by talking to you (picking their Pokémon confirms for them), you confirm by talking again.
+  Battle: COLOSSEUM sends a challenge, the other player accepts by talking to you. Talking while waiting cancels.
+- `tools/fake_script.py` interprets the script opcodes used; `tests/test_talk.py` (3 tests: trade, battle,
+  cancel/exit) passes 3/3 runs. All suites pass. Not yet run in the real game.
+

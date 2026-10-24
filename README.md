@@ -45,6 +45,14 @@ room=LOBBY         <- everyone who wants to play together uses the same room cod
 Or type into the scripting window's input box at the bottom: `mp.name("Ash")`, `mp.room("MYROOM")`,
 `mp.connect("100.1.2.3")`. These are saved for next time.
 
+## Trading and battling: just talk to them
+Walk up to another player's character and press **A**. The game's own menus appear:
+- **TRADE CENTER**: pick one of your Pokémon on the party screen; they get your offer. They talk to you, see what
+  you offer and pick theirs; you talk to them once more to confirm. **Save your game afterwards.**
+- **COLOSSEUM**: challenge them. They talk to you and accept, and the battle starts for both of you.
+- Talk to them again while waiting to cancel your request.
+The console commands below do the same things and are handy when the other player is on a different map.
+
 ## Commands (type into the box at the bottom of the scripting window)
 | Command | What it does |
 |---|---|

@@ -24,6 +24,10 @@ function _RRMP_VISUALS_NEW(env)
   V.addr = A
   local OBJ, SPR, TPL, NOBJ = 0x24, 0x44, 0x18, 16
   local SB1_TEMPLATES, FAKE_SLOT, MAX_PUPPETS, LOCALID_BASE = 0x8E0, 63, 7, 0x70
+  -- template slots 54-62 hold the event script that runs when you talk to a puppet (216 bytes, rr_mp builds it)
+  local SCRIPT_SLOT, SCRIPT_MAX = 54, 9 * 0x18
+  local function scriptAddr(sb1) return sb1 + SB1_TEMPLATES + SCRIPT_SLOT * TPL end
+  V.scriptAddr = scriptAddr
   local MAP_OFFSET, FAR = 7, -1000
   local F_ACTIVE, F_HELD, F_HELD_DONE, F_FROZEN, F_INVISIBLE, F_PLAYER = 0x1, 0x40, 0x80, 0x100, 0x2000, 0x10000
   -- MOVEMENT_ACTION_* from pokefirered include/constants/event_object_movement.h; index = facing (1 down 2 up 3 left 4 right)
@@ -116,7 +120,8 @@ function _RRMP_VISUALS_NEW(env)
     emu:write16(a + 6, y & 0xFFFF)
     emu:write32(a + 8, e & 0x0F)                           -- elevation, movementType NONE, no range
     emu:write32(a + 0x0C, 0)                               -- trainerType, trainerRange
-    emu:write32(a + 0x10, 0)                               -- script NULL: talking to a puppet does nothing
+    -- script: the shared talk-to-player script (or NULL = talking does nothing)
+    emu:write32(a + 0x10, (p and env.buildScript) and scriptAddr(sb1) or 0)
     emu:write32(a + 0x14, 0)                               -- flagId 0: never hidden
   end
 
@@ -134,7 +139,7 @@ function _RRMP_VISUALS_NEW(env)
       return false
     end
     local count = emu:read8(ev)
-    if count + MAX_PUPPETS > FAKE_SLOT then
+    if count + MAX_PUPPETS > SCRIPT_SLOT then
       V.mapReason = "this map has too many objects for puppets"
       return false
     end
@@ -341,7 +346,7 @@ function _RRMP_VISUALS_NEW(env)
     end
 
     -- find spawned puppets and drive or hide them
-    local shown = 0
+    local shown, at = 0, {}
     for i = 1, NOBJ - 1 do
       local o = objAddr(i)
       if emu:read32(o) & F_ACTIVE ~= 0 then
@@ -352,6 +357,7 @@ function _RRMP_VISUALS_NEW(env)
           if p and emu:read8(o + 5) == p.gfx2 then
             drive(o, p)
             shown = shown + 1
+            at[(s16(emu:read16(o + 0x10))) .. "," .. (s16(emu:read16(o + 0x12)))] = V.slotPeer[k]
           else
             hide(o)   -- leftover, wrong map, or graphics changed: the game deletes it on the next camera move
           end
@@ -360,6 +366,32 @@ function _RRMP_VISUALS_NEW(env)
     end
     V.shown = shown
     V.reason = patched and "on" or ("paused: " .. (V.mapReason or "map not patched"))
+
+    -- talk-to-player: keep the shared script prepared for the puppet the player is facing. Never rewrite it
+    -- while a script runs (the player object is frozen by `lock` from the moment A is pressed).
+    if patched and env.buildScript then
+      local po = A.gObjectEvents
+      if emu:read32(po) & F_FROZEN == 0 then
+        local dx, dy = 0, 0
+        local f = emu:read8(po + 0x18) & 0x0F
+        if f == 1 then dy = 1 elseif f == 2 then dy = -1 elseif f == 3 then dx = -1 elseif f == 4 then dx = 1 end
+        local tx, ty = s16(emu:read16(po + 0x10)) + dx, s16(emu:read16(po + 0x12)) + dy
+        local peer = at[tx .. "," .. ty]
+        if peer then
+          local addr = scriptAddr(sb1)
+          local bytes = env.buildScript(peer, addr)
+          if bytes and #bytes <= SCRIPT_MAX and (bytes ~= V.scriptBytes or addr ~= V.scriptAt) then
+            for i = 1, #bytes do emu:write8(addr + i - 1, bytes:byte(i)) end
+            V.scriptBytes, V.scriptAt, V.scriptPeer = bytes, addr, peer
+          end
+        end
+      end
+    end
+  end
+
+  -- which peer a puppet localId (gSpecialVar_LastTalked) belongs to
+  function V.peerForLocalId(localId)
+    return V.slotPeer[(localId or 0) - LOCALID_BASE]
   end
 
   function V.status()

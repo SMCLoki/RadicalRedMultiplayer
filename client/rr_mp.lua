@@ -430,7 +430,10 @@ do
   local ok, err = pcall(dofile, scriptDir() .. "/rr_visuals.lua")
   if ok and _RRMP_VISUALS_NEW then
     visuals = _RRMP_VISUALS_NEW({ enabled = cfg.visuals ~= "0", gfx = cfg.puppet_gfx, event = event,
-                                  cbOverworld = cfg.cb_overworld })
+                                  cbOverworld = cfg.cb_overworld,
+                                  buildScript = cfg.talk_menu ~= "0" and function(peer, base)
+                                    return M.buildTalkScript and M.buildTalkScript(peer, base)
+                                  end or nil })
   else
     event("visuals unavailable: " .. tostring(err))
   end
@@ -822,6 +825,11 @@ function handlers.trade_preview(m)
   local tr = S.trade
   if not tr or tr.txn ~= m.txn then return end
   tr.theirs, tr.stage = monInfo(m.mon), "preview"
+  if tr.autoConfirm then
+    -- answered through the in-game menu after seeing their Pokemon: picking ours was the confirmation
+    _G.mp.confirm()
+    return
+  end
   event(string.format("trade: your %s for their %s. mp.confirm() to trade, mp.cancel() to stop",
     monLabel(tr.mine), monLabel(tr.theirs)))
 end
@@ -1026,6 +1034,10 @@ local function tick()
       visualsErrAt = f
       event("visuals error: " .. tostring(e))
     end
+    if M.pollTalkResult then
+      local ok2, e2 = pcall(M.pollTalkResult)
+      if not ok2 then event("talk menu error: " .. tostring(e2)) end
+    end
   end
   if cfg.manual_poll == "1" and net.sock and net.sock.poll then pcall(net.sock.poll, net.sock) end
   if net.sock then
@@ -1070,6 +1082,168 @@ function M.shutdown()
 end
 local okCb, id = pcall(callbacks.add, callbacks, "shutdown", M.shutdown)
 if okCb then shutdownCb = id end
+
+------------------------------------------------------------------------------------------------
+-- Talk-to-player menu. Pressing A on another player's character runs a small event script (built here, kept in
+-- RAM by rr_visuals.lua for the puppet you are facing) that uses the game's own text box, TRADE CENTER /
+-- COLOSSEUM menu, YES/NO box and party screen. The script leaves its answer in special variables:
+-- 0x8007 = which question, 0x8005 = menu/YES-NO answer, 0x8004 = party slot, 0x8006 = "done" marker.
+-- FireRed script opcodes: pokefirered data/script_cmd_table.inc; menu 39 = MULTICHOICE_TRADE_CENTER_COLOSSEUM;
+-- special 160 = ChoosePartyMon (result in 0x8004). Both can be overridden (menu_list, special_choose_party).
+
+local SV = { v8004 = 0x020370C0, v8005 = 0x020370C2, v8006 = 0x020370C4, v8007 = 0x020370C6,
+             lastTalked = 0x020370D2 }
+local SCRIPT_DONE = 0x4D50
+local MENU_LIST = tonumber(cfg.menu_list or "") or 39
+local SPECIAL_CHOOSE_PARTY = tonumber(cfg.special_choose_party or "") or 160
+local Q_MENU, Q_TRADE_OFFER, Q_BATTLE_INVITE, Q_TRADE_PREVIEW, Q_WAITING, Q_BUSY = 1, 2, 3, 4, 5, 6
+
+local function gen3text(str)
+  local map = { [" "] = 0x00, ["!"] = 0xAB, ["?"] = 0xAC, ["."] = 0xAD, ["-"] = 0xAE, [","] = 0xB8,
+                [":"] = 0xF0, ["'"] = 0xB4, ["\n"] = 0xFE }
+  local out, i = {}, 1
+  while i <= #str do
+    local c = str:sub(i, i)
+    if c == "{" then
+      local j = str:find("}", i, true)
+      local tag = str:sub(i + 1, j - 1)
+      out[#out + 1] = tag == "S1" and "\xFD\x02" or "\xFD\x03"   -- STR_VAR_1 / STR_VAR_2
+      i = j + 1
+    else
+      local b = c:byte()
+      local code
+      if b >= 65 and b <= 90 then code = 0xBB + b - 65
+      elseif b >= 97 and b <= 122 then code = 0xD5 + b - 97
+      elseif b >= 48 and b <= 57 then code = 0xA1 + b - 48
+      else code = map[c] or 0xAC end
+      out[#out + 1] = string.char(code)
+      i = i + 1
+    end
+  end
+  return table.concat(out) .. "\xFF"
+end
+M.gen3text = gen3text
+
+-- tiny two-pass assembler for FireRed event scripts
+local function newScript()
+  local sc = { parts = {}, size = 0, fix = {}, labels = {}, texts = {} }
+  function sc:b(...)
+    for _, v in ipairs({ ... }) do self.parts[#self.parts + 1] = string.char(v & 0xFF); self.size = self.size + 1 end
+  end
+  function sc:u16(v) self:b(v & 0xFF, (v >> 8) & 0xFF) end
+  function sc:ptr(label)
+    self.fix[#self.fix + 1] = { pos = #self.parts + 1, label = label }
+    self:b(0, 0, 0, 0)
+  end
+  function sc:label(name) self.labels[name] = self.size end
+  function sc:text(name, str) self.texts[#self.texts + 1] = { name = name, data = gen3text(str) } end
+  function sc:build(base)
+    local off = self.size
+    for _, t in ipairs(self.texts) do self.labels[t.name] = off; off = off + #t.data end
+    for _, f in ipairs(self.fix) do
+      local a = base + self.labels[f.label]
+      for k = 0, 3 do self.parts[f.pos + k] = string.char((a >> (8 * k)) & 0xFF) end
+    end
+    local out = { table.concat(self.parts) }
+    for _, t in ipairs(self.texts) do out[#out + 1] = t.data end
+    return table.concat(out)
+  end
+  -- commands
+  function sc:setvar(var, v) self:b(0x16); self:u16(var); self:u16(v) end
+  function sc:copyvar(dst, src) self:b(0x19); self:u16(dst); self:u16(src) end
+  function sc:message(label) self:b(0x67); self:ptr(label); self:b(0x66) end   -- message + waitmessage
+  function sc:speciesName(strVar, species) self:b(0x7D, strVar); self:u16(species) end
+  function sc:yesno() self:b(0x6E, 20, 8); self:copyvar(0x8005, 0x800D) end
+  function sc:gotoIfResultNot(v, label) self:b(0x21); self:u16(0x800D); self:u16(v); self:b(0x06, 5); self:ptr(label) end
+  function sc:chooseParty() self:b(0x25); self:u16(SPECIAL_CHOOSE_PARTY); self:b(0x27) end
+  return sc
+end
+
+local function questionFor(peer)
+  local tr, bt = S.trade, S.battle
+  if S.status ~= "online" then return Q_BUSY end
+  if bt and bt.peer == peer and bt.stage == "invite" then return Q_BATTLE_INVITE end
+  if tr and tr.peer == peer and tr.stage == "offered" then return Q_TRADE_OFFER end
+  if tr and tr.peer == peer and tr.stage == "preview" and tr.role == "a" then return Q_TRADE_PREVIEW end
+  if (tr and tr.peer == peer) or (bt and bt.peer == peer) then return Q_WAITING end
+  if tr or bt or inBattle() then return Q_BUSY end
+  return Q_MENU
+end
+
+function M.buildTalkScript(peer, base)
+  local p = S.peers[peer]
+  if not p then return nil end
+  local name = tostring(p.name or "Player"):sub(1, 10)
+  local q = questionFor(peer)
+  local sc = newScript()
+  sc:b(0x6A, 0x5A)                       -- lock, faceplayer
+  sc:setvar(0x8004, 0xFF)
+  sc:setvar(0x8005, 0)
+  sc:setvar(0x8007, q)
+  if q == Q_MENU then
+    sc:text("t", name .. ": Let's link up!\nTrade or battle?")
+    sc:message("t")
+    sc:b(0x6F, 0, 0, MENU_LIST, 0)        -- multichoice: TRADE CENTER / COLOSSEUM / EXIT
+    sc:copyvar(0x8005, 0x800D)
+    sc:gotoIfResultNot(0, "done")
+    sc:chooseParty()
+  elseif q == Q_TRADE_OFFER then
+    sc:speciesName(0, S.trade.theirs and S.trade.theirs.species or 0)
+    sc:text("t", name .. " offers {S1}!\nTrade one of yours for it?")
+    sc:message("t")
+    sc:yesno()
+    sc:gotoIfResultNot(1, "done")
+    sc:chooseParty()
+  elseif q == Q_BATTLE_INVITE then
+    sc:text("t", name .. " wants to battle!\nAccept the challenge?")
+    sc:message("t")
+    sc:yesno()
+  elseif q == Q_TRADE_PREVIEW then
+    sc:speciesName(0, S.trade.theirs and S.trade.theirs.species or 0)
+    sc:speciesName(1, S.trade.mine and S.trade.mine.species or 0)
+    sc:text("t", name .. " offers {S1}\nfor your {S2}. Trade?")
+    sc:message("t")
+    sc:yesno()
+  elseif q == Q_WAITING then
+    sc:text("t", "Waiting for " .. name .. "...\nCancel your request?")
+    sc:message("t")
+    sc:yesno()
+  else
+    sc:text("t", name .. " can't right now.\nFinish your current link first.")
+    sc:message("t")
+    sc:b(0x6D)                            -- waitbuttonpress
+  end
+  sc:label("done")
+  sc:setvar(0x8006, SCRIPT_DONE)
+  sc:b(0x68, 0x6C, 0x02)                 -- closemessage, release, end
+  return sc:build(base)
+end
+
+function M.pollTalkResult()
+  if emu:read16(SV.v8006) ~= SCRIPT_DONE then return end
+  emu:write16(SV.v8006, 0)
+  local q, answer, slot = emu:read16(SV.v8007), emu:read16(SV.v8005), emu:read16(SV.v8004)
+  local peer = visuals and (visuals.peerForLocalId(emu:read16(SV.lastTalked)) or visuals.scriptPeer)
+  if not peer or not S.peers[peer] then return end
+  local slotOk = slot < partyCount()
+  local mpc = _G.mp
+  if q == Q_MENU then
+    if answer == 0 and slotOk then mpc.trade(peer, slot + 1)
+    elseif answer == 1 then mpc.battle(peer) end
+  elseif q == Q_TRADE_OFFER then
+    if answer == 1 and slotOk then
+      if mpc.accept(slot + 1) == true and S.trade then S.trade.autoConfirm = true end
+    else
+      mpc.decline()
+    end
+  elseif q == Q_BATTLE_INVITE then
+    if answer == 1 then mpc.fight() else mpc.decline() end
+  elseif q == Q_TRADE_PREVIEW then
+    if answer == 1 then mpc.confirm() else mpc.cancel() end
+  elseif q == Q_WAITING and answer == 1 then
+    if S.trade and S.trade.peer == peer then mpc.cancel() else mpc.decline() end
+  end
+end
 
 ------------------------------------------------------------------------------------------------
 -- Console commands:  mp.help()
