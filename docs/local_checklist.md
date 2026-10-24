@@ -27,7 +27,7 @@ python tests\test_client.py         # Lua client end-to-end; skipped unless `pip
    - [x] `socket.connect` works from `rr_mp.lua` (connect status in the panel)
    - [x] the "RR Online" text buffer appears and refreshes (`console:createBuffer`, `setSize`)
    - [ ] `emu:checksum()` returns 4 bytes → `game` id looks like `AGB-BPRE:xxxxxxxx` in the server log
-   - [ ] typing `mp.help()`, `mp.who()`, `mp.say("hi")` in the console works (global `mp` reachable from the REPL)
+   - [x] typing `mp.help()`, `mp.who()`, `mp.say("hi")` in the console works (global `mp` reachable from the REPL)
    - [ ] no stutter: frame rate stays 60 with both connected (Tools → show FPS)
    - [x] stop the server: panel shows offline/retrying; restart it: both reconnect within ~10 s
    - [ ] pause one emulator > 10 s: the other sees it leave (timeout) and rejoin after unpausing
@@ -36,8 +36,8 @@ python tests\test_client.py         # Lua client end-to-end; skipped unless `pip
 ## 2. Phase 2 presence
 Tool: load `client/ramsearch.lua` in the same Scripting window (commands: `rs.facing()`, `rs.start(size)`,
 `rs.filter(...)`, `rs.list()`, `rs.snap/diff`, `rs.watch`, `rs.callbacks(true)`; output in `work/ramsearch*.txt`).
-- [ ] Walk around: the other panel's `map g.n xX yY` follows, `<< HERE` when on the same map.
-- [ ] Verify facing: `objectEvents[0]+0x18` low nibble while facing down/up/left/right (expect 1/2/3/4).
+- [x] Walk around: the other panel's `map g.n xX yY` follows, `<< HERE` when on the same map.
+- [x] Verify facing: `objectEvents[0]+0x18` low nibble while facing down/up/left/right (expect 1/2/3/4).
       Update `sampleState()` and `docs/ram_map.md`.
 - [ ] Research drawing remote players with a spare object-event slot: find `graphicsId`, `spriteId`, the
       `gSprites` array, and whether activating a free `gObjectEvents` slot spawns a sprite (vanilla: it needs
@@ -50,12 +50,12 @@ Party structs are plain on RR (verified Phase 0). The trade path writes whole 10
 1. Give each save ≥2 Pokémon. In window 1: `mp.party()`, `mp.trade("Player2", 1)`. Window 2: `mp.accept(2)`.
    Both: `mp.confirm()`.
 2. Verify:
-   - [ ] the received Pokémon shows correctly in the party screen and summary (nickname, OT, moves, stats)
+   - [x] the received Pokémon shows correctly in the party screen and summary (nickname, OT, moves, stats)
    - [ ] it can battle and gain exp normally; the game does not "repair"/reject it (no Bad Egg)
    - [ ] save in-game, reset, reload: still there
-   - [ ] **kill mid-trade**: after `mp.confirm()` on one side only, kill that mGBA (Task Manager) → other side
+   - [x] **kill mid-trade**: after `mp.confirm()` on one side only, kill that mGBA (Task Manager) → other side
          gets "trade cancelled (disconnect)", both parties unchanged
-   - [ ] **kill after commit, before saving**: complete a trade, kill one mGBA without saving, restart it and
+   - [x] **kill after commit, before saving**: complete a trade, kill one mGBA without saving, restart it and
          load the script → panel says the trade was re-applied from the journal; save
    - [ ] reload an older save after a trade: within 5 s the given Pokémon is replaced again (anti-dupe)
 3. Known limits to decide on: trade evolutions don't trigger (would need the engine's evolution scene);

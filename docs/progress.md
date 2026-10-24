@@ -84,3 +84,25 @@ See `docs/ram_map.md`. Party structs unencrypted on RR.
 - Recommendation for the local session: `pip install lupa` (with the user's OK) so `tests/test_client.py`
   actually runs on Windows instead of skipping.
 
+
+
+## 2026-10-24 - real mGBA run 2 (local): presence, facing, commands, trading
+
+Setup: two mGBA windows (work/rr.gba, work/rr2.gba) from `overworld_lab.ss`, local server, `pilot.lua` in window 1.
+Both windows start with the same Chikorita, so window 2's PID was edited in RAM to tell them apart (test data only).
+
+- **Walking presence works:** window 1 walked via pilot, window 2's panel followed (x10 y10 -> x9 y9, "<< HERE").
+- **Facing verified:** objectEvents[0]+0x18 = 0x11/0x22/0x33/0x44 for down/up/left/right; low nibble 1-4 is right.
+- **Console commands work:** `mp.say`, `mp.who`, `mp.party`, `mp.trade`, `mp.accept`, `mp.confirm`.
+- **Trade works:** PIDs swapped (12345678 <-> 8C233F8A); the summary screen shows the received Pokémon normally
+  (nature follows the edited PID, as expected).
+- **Kill mid-trade works:** window 2 confirmed, was killed before window 1 confirmed -> window 1 got
+  "trade cancelled (disconnect)", party unchanged.
+- **Kill after commit works** (window 2 killed 3 s after commit, relaunched from a pre-trade state -> trade re-applied).
+- **Bug found and fixed in `reconcile()`:** on that relaunch it also re-applied an OLDER journal entry whose given
+  Pokémon had come back in the newer trade, replacing it with a Pokémon already traded away (a dupe). In real play:
+  trade A away, later get A back, reload -> the old entry fires. Fix: an entry is skipped once a later entry received its
+  `give` Pokémon. Re-tested: only the latest trade re-applied, window 2 ends with the right Pokémon.
+  Known limit: reloading a save from before SEVERAL chained trades can still mis-reconcile; a full fix would replay the
+  journal in order against the loaded party. Worth a fake-mGBA test.
+- Not done: in-game save -> reset -> reload after a trade; trade evolutions; PC boxes; pause-timeout; script reload.

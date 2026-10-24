@@ -562,9 +562,19 @@ end
 local function reconcile()
   if inBattle() then return 0 end
   local fixed = 0
-  for _, e in ipairs(journalEntries()) do
-    local recv = monInfo(e.mon)
-    local slot = findFp(e.give)
+  local entries = journalEntries()
+  -- An entry is superseded once a later trade handed its `give` Pokémon back to us: re-applying it
+  -- would swap that Pokémon for one we have since traded on (seen in the real emulator).
+  local receivedLater = {}
+  for i = #entries, 1, -1 do
+    local e = entries[i]
+    e.superseded = receivedLater[e.give] or false
+    local info = monInfo(e.mon)
+    if info then receivedLater[info.fp] = true end
+  end
+  for _, e in ipairs(entries) do
+    local recv = not e.superseded and monInfo(e.mon)
+    local slot = recv and findFp(e.give)
     if slot and recv and not findFp(recv.fp) then
       writeMonHex(RAM.party, slot, e.mon)
       fixed = fixed + 1
