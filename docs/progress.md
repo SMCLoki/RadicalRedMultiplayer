@@ -389,3 +389,22 @@ with the current `tools/compare_traces.py`.
    tested on 250898f. Cause: the Z-Move from stale bytes 4-7 of CFRU's 8-byte move reply, fixed in d6a72b1 (not yet
    run in the real game). Next real-game step: `docs/beta_checklist.md` section 1.
 
+
+## 2026-10-24 - real mGBA run 9 (local): Z-Move fix (39b3753), beta checklist section 1
+
+Battles 10 and 11 (traces per battle; battle 11: `docs/evidence_btrace_run9_b11_window1/2.txt`). Both desync after
+turn 1, but now only ONE game uses the Z-Move:
+- Battle 10: `0x0900188A` in window 1 only (1 line), window 2: 0. Window 1's opponent hit for base 10 (Z), every other
+  hit was base 5. compare_traces: "random value equal at every common exec=0 step (RNG lock held)"; first difference
+  at 080155C9/081D6926 #2, "same random value, different result"; first step only in window 1 = 0x0900188A.
+- Battle 11 (controlled order): window 2 picked its move first, window 1 picked ~6 s later. The Z-Move again happened
+  only in **window 1 - the game that was still choosing when the other player's choice arrived**. Window 2 (chose
+  first, remote arrived after) played normal Tackles. compare_traces output: RNG lock held; first difference
+  080155C9/081D6926 #2, same random value, different result.
+- Opponent hold: `f1=0802E311` on every line where both sides choose (exec=3); release to 0x08035A99 only on the
+  exec=2 lines that consume the remote reply - in both games.
+Conclusion: the run-8 fix clears the opponent's Z flag on one code path only. When the remote decision is already in
+hand while the local player is still choosing, the reply is written early and the opponent controller still sets
+the Z-Move (or the flag is cleared before CFRU sets it). Clear the flag on every path, at the moment battler 1's
+reply is consumed (exec bit 2 -> 0), not when the remote decision arrives.
+Section 2 (talk-to-player menu) not tested yet.
