@@ -166,3 +166,36 @@ Window 1 from `overworld_lab.ss`, window 2 from `rival_battle_menu.ss` (mid riva
   switching, forfeit, speed-tie desync detection, full restore. Model of the engine, not the ROM.
 - Not run in the real emulator yet.
 
+
+## 2026-10-24 - real mGBA run 5 (local): PvP battle engine (commit 6572b6a)
+
+Two windows in Oak's lab, both with the same level-5 Chikorita (holding an Oran Berry). 3 battles via
+`mp.battle("Player2")` / `mp.fight()`, moves picked with pilot taps.
+
+Works in the real game:
+- **Start:** both games cut straight into the battle (no black screen) and show the other player's team.
+- **Turn sync:** each game waits for the other's choice ("waiting for opponent"), then both play the same moves.
+- **Desync detection:** the per-round hash caught every divergence; the server ended the battle as `desync` in both
+  games (`server/data/battles.jsonl`).
+- **Restore:** after every battle both games returned to the map with party HP, money and options restored; puppets
+  still drawn.
+
+Problems found:
+1. **Desync within 2-4 turns, every battle.** Battle 1 had a speed tie (identical mons, the known limit). Battles 2-3
+   had different Speed (window 2's Speed set to 30 in RAM as test data), still desynced at turn 3.
+   Evidence: `docs/evidence_bdbg_window1.txt` / `_window2.txt` (from `client/battle_debug.lua`, one line per
+   gBattleMainFunc change). Both games load the same reseed at the same logical point (turn 1 `C7BD2DF9`, turn 2
+   `65E4A72A`) and the turn-order phase produces identical RNG values, but by the end of turn 1 window 1 is one RNG step
+   ahead (`38701368 -> 981253BB` vs `981253BB`), and turn 1 took 239 vs 240 frames. In turn 2 the damage rolls then
+   differ (window 2: P1 dropped to <=10 HP, ate its Oran Berry, ended on 20; window 1: P1 ended on 12).
+   **Likely cause:** battle animations/controllers consume `Random()` and run for different lengths depending on
+   which side a Pokémon is drawn on (back sprite vs front sprite), so RNG drifts mid-turn even with an identical
+   reseed. Suggested fix to try: reseed before *each* damage-relevant step (e.g. when gBattlerAttacker /
+   gCurrentMove changes for a new move), or snapshot gRngValue whenever gBattleControllerExecFlags goes 0 -> non-zero
+   and restore it when it returns to 0 (the battle script waits while controllers run, so only visual code should use
+   RNG in that window - verify that order within a frame first). Option A (link mode) avoids this entirely.
+2. **Opponent name:** the intro says "You are challenged by Rocket Admin Playe!" in both games - the e-reader trainer
+   class shows as "Rocket Admin" and the name is cut to 5 characters.
+3. Not tested yet: switching, a faint/replacement, `mp.forfeit()`, a battle reaching a winner (none lasted long enough).
+
+Tools: `client/battle_debug.lua` (state log per battle-loop step, file per window via `PILOT_FILE` tag).

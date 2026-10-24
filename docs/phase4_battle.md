@@ -59,6 +59,9 @@ a speed tie is caught as a desync; party/money/option/e-reader slot restored and
 - Abilities/items that make the AI controller or the game ask extra questions (e.g. Shift prompt) are untested.
 
 ## Real-emulator verification (for the local session)
+
+> 2026-10-24 first run: start, turn sync, desync detection and restore work; every battle desynced within 2-4 turns
+> because RNG drifts during turn animations (see progress.md "real mGBA run 5" and docs/evidence_bdbg_*.txt).
 Two windows, both scripts loaded, both standing on a map. Window 1: `mp.battle("Player2")`, window 2: `mp.fight()`.
 1. Both games cut to a battle against the other player's team; the intro names the other player.
 2. Pick moves in both windows; each game waits for the other (panel: `waiting for opponent`), then both play
