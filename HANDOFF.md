@@ -13,6 +13,8 @@ A cloud Claude session did the heavy lifting that doesn't need the emulator; you
      ask the user before installing)
    - `start_server.bat`, `start_client.bat`, `run_tests.bat`
 
+**Current focus: `docs/beta_checklist.md` - one real-mGBA pass to confirm the beta.**
+
 Status in one line: Phases 1-3 are written and pass automated tests (server real, client in a modelled mGBA);
 none of it has run in the real emulator yet. Phase 4 has the network side done; the game-engine hooks are
 open research. Start with `docs/local_checklist.md` §0-§1.
