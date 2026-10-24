@@ -276,6 +276,7 @@ local RAM = {
   battleFlags = 0x02022B4C,
   sb1Ptr = 0x03005008,
   objEvents = 0x02036E38,
+  playerAvatar = 0x02037078,
 }
 local MON_SIZE = 100
 M.RAM = RAM
@@ -347,16 +348,37 @@ local function monLabel(info)
   return string.format("#%d Lv%d", info.species, info.level)
 end
 
+-- Step history for puppet rendering on other clients: every tile/facing change of the player object
+-- {seq, x, y, facing, movementActionId}. Sampled every frame, the last 8 ride along with each presence update.
+local steps, stepSeq, lastStepKey, footGfx = {}, 0, nil, 0
+
+local function sampleSteps()
+  local o = RAM.objEvents
+  if emu:read32(o) & 0x10001 ~= 0x10001 then return end   -- player object active + isPlayer
+  local cx, cy = emu:read16(o + 0x10), emu:read16(o + 0x12)
+  if cx >= 0x8000 then cx = cx - 0x10000 end
+  if cy >= 0x8000 then cy = cy - 0x10000 end
+  local f = emu:read8(o + 0x18) & 0x0F
+  local key = cx .. "," .. cy .. "," .. f
+  if key == lastStepKey then return end
+  lastStepKey = key
+  stepSeq = stepSeq + 1
+  steps[#steps + 1] = json.array({ stepSeq, cx - 7, cy - 7, f, emu:read8(o + 0x1C) })
+  if #steps > 8 then table.remove(steps, 1) end
+  if emu:read8(RAM.playerAvatar) & 1 ~= 0 then footGfx = emu:read8(o + 5) end  -- on-foot sprite
+end
+
 local function sampleState()
   local sb1 = emu:read32(RAM.sb1Ptr)
   if sb1 < 0x02000000 or sb1 >= 0x02040000 then return nil end
   local x, y = emu:read16(sb1), emu:read16(sb1 + 2)
   if x >= 0x8000 then x = x - 0x10000 end
   if y >= 0x8000 then y = y - 0x10000 end
-  -- facing: low nibble of objectEvents[0]+0x18 (vanilla layout; NOT yet verified on RR, see ram_map.md)
+  -- facing: low nibble of objectEvents[0]+0x18 (verified 1-4 = down/up/left/right on RR)
   local facing = emu:read8(RAM.objEvents + 0x18) & 0x0F
   return { map = json.array({ emu:read8(sb1 + 4), emu:read8(sb1 + 5) }), x = x, y = y, f = facing,
-           b = inBattle() and 1 or 0 }
+           b = inBattle() and 1 or 0, g = footGfx, e = emu:read8(RAM.objEvents + 0x0B) & 0x0F,
+           st = json.array({ table.unpack(steps) }) }
 end
 
 local function gameId()
@@ -401,6 +423,19 @@ local function event(msg)
   S.dirty = true
   if console and console.log then console:log("[mp] " .. msg) end
 end
+
+-- Remote players drawn as overworld characters (client/rr_visuals.lua, docs/visuals.md)
+local visuals
+do
+  local ok, err = pcall(dofile, scriptDir() .. "/rr_visuals.lua")
+  if ok and _RRMP_VISUALS_NEW then
+    visuals = _RRMP_VISUALS_NEW({ enabled = cfg.visuals ~= "0", gfx = cfg.puppet_gfx, event = event })
+  else
+    event("visuals unavailable: " .. tostring(err))
+  end
+end
+M.visuals = visuals
+local visualsErrAt = -9999
 
 local function uid()
   local path = WORK .. "mp_uid_" .. PROFILE .. ".txt"
@@ -447,6 +482,7 @@ local function drop(reason, retry)
   if net.sock then pendingClose[#pendingClose + 1] = net.sock end
   net.sock, net.inbuf, net.outbuf = nil, "", ""
   S.myId, S.peers = nil, {}
+  if visuals then visuals.peers = {} end
   if S.trade then S.trade = nil end
   if retry == false or not net.auto then
     S.status = "stopped"
@@ -697,7 +733,11 @@ function handlers.welcome(m)
   S.maxPlayers = m.max or 8
   net.backoff = 1
   S.peers = {}
-  for _, p in ipairs(m.peers or {}) do S.peers[p.id] = { name = p.name, state = p.state } end
+  if visuals then visuals.peers = {} end
+  for _, p in ipairs(m.peers or {}) do
+    S.peers[p.id] = { name = p.name, state = p.state }
+    if visuals and type(p.state) == "table" then visuals.onState(p.id, p.state) end
+  end
   event("joined room " .. tostring(m.room) .. " as #" .. tostring(m.id))
   local n = reconcile()
   if n > 0 then event(n .. " trade(s) re-applied from journal - save your game") end
@@ -712,14 +752,17 @@ end
 function handlers.leave(m)
   local p = S.peers[m.id]
   S.peers[m.id] = nil
+  if visuals then visuals.onLeave(m.id) end
   event((p and p.name or "#" .. m.id) .. " left (" .. tostring(m.reason) .. ")")
 end
 
 function handlers.state(m)
-  local p = S.peers[m.from]
-  if not p then p = { name = "#" .. m.from }; S.peers[m.from] = p end
+  local id = m.from
+  local p = S.peers[id]
+  if not p then p = { name = "#" .. id }; S.peers[id] = p end
   m.t, m.from = nil, nil
   p.state = m
+  if visuals then visuals.onState(id, m) end
   S.dirty = true
 end
 
@@ -900,6 +943,7 @@ local function render()
   if S.battle then
     add(string.format("Battle vs %s: %s turn %s", peerName(S.battle.peer), S.battle.stage, tostring(S.battle.turn)))
   end
+  if visuals then add(visuals.status()) end
   if #S.chat > 0 then
     add("Chat:")
     for _, c in ipairs(S.chat) do add("  " .. c) end
@@ -950,6 +994,14 @@ local function tick()
   if #pendingClose > 0 then closePending() end
   if S.frame % 30 == 0 then _RRMP_TRACE("tick " .. S.frame) end
   local f = S.frame
+  sampleSteps()
+  if visuals and S.status == "online" then
+    local ok, e = pcall(visuals.tick, f)
+    if not ok and f - visualsErrAt > 5 * FPS then
+      visualsErrAt = f
+      event("visuals error: " .. tostring(e))
+    end
+  end
   if cfg.manual_poll == "1" and net.sock and net.sock.poll then pcall(net.sock.poll, net.sock) end
   if net.sock then
     if S.status == "online" or S.status == "connecting" then
@@ -984,6 +1036,7 @@ end)
 
 local shutdownCb
 function M.shutdown()
+  if visuals then visuals.shutdown() end
   if net.sock then pcall(function() send({ t = "bye" }); flush(); net.sock:close() end) end
   net.sock = nil
   pcall(callbacks.remove, callbacks, frameCb)
@@ -1026,6 +1079,7 @@ function mp.help()
   mp.confirm()           confirm the trade shown in the panel
   mp.cancel()/decline()  cancel the trade / decline a trade or battle
   mp.battle(who)         challenge a player     mp.fight()  accept a challenge
+  mp.visuals(true/false) show other players as characters on your map   mp.vis()  details
   mp.forfeit()           give up the current battle
   mp.name("Red")  mp.room("ABCD")  mp.connect("host", port)  mp.disconnect()  mp.reload()]])
 end
@@ -1146,6 +1200,32 @@ function mp.act(action)
 end
 
 function mp.restore_party() return restoreParty() or say("no party backup found") end
+
+-- remote players as overworld characters
+function mp.visuals(on)
+  if not visuals then return say("visuals module not loaded") end
+  on = on ~= false
+  visuals.setEnabled(on)
+  saveProfileSetting("visuals", on and "1" or "0")
+  return say("visuals " .. (on and "on" or "off"))
+end
+
+function mp.vis()
+  if not visuals then return say("visuals module not loaded") end
+  local out = { visuals.status() }
+  for k = 0, 6 do
+    local id = visuals.slotPeer[k]
+    local p = id and visuals.peers[id]
+    if p then
+      out[#out + 1] = string.format("  slot %d (localId 0x%02X): %s target %s,%s queue %d", k, 0x70 + k,
+        peerName(id), tostring(p.tx), tostring(p.ty), #p.queue)
+    end
+  end
+  local a = visuals.addr
+  out[#out + 1] = string.format("  gSprites %08X  gMapHeader %08X  events %08X", a.gSprites, a.gMapHeader,
+    emu:read32(a.gMapHeader + 4))
+  return say(table.concat(out, "\n"))
+end
 
 function mp.name(n)
   n = tostring(n or ""):sub(1, 12)

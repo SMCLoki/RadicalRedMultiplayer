@@ -1,7 +1,7 @@
 # Radical Red Online (work in progress)
 
 Play Pokémon Radical Red together online: up to **8 players per room** see where everyone is, chat and
-trade Pokémon. PvP battles are being built (network part done, game part in progress).
+trade Pokémon. Other players on your map walk around as characters (take a step to see newcomers). PvP battles are being built (network part done, game part in progress).
 It is a small server program plus a script that runs inside the mGBA emulator.
 **No game files are included**: bring your own legally obtained Radical Red ROM.
 
@@ -57,6 +57,7 @@ Or type into the scripting window's input box at the bottom: `mp.name("Ash")`, `
 | `mp.confirm()` | confirm the trade shown in the panel (both players must confirm) |
 | `mp.cancel()` / `mp.decline()` | cancel a trade / decline a trade or battle |
 | `mp.battle("Brock")`, `mp.fight()`, `mp.forfeit()` | battles (not playable yet, see progress) |
+| `mp.visuals(false)` / `mp.visuals(true)` | hide / show other players as characters on your map |
 
 **After a trade, save your game in the game's menu.** If the game closes before you save, the script
 re-applies the trade the next time it connects, so no Pokémon is ever duplicated or lost.

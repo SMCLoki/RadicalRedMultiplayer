@@ -29,6 +29,10 @@ mons** (check in Phase 3).
 | gRngValue | 0x03005000 | u32 | changes every frame |
 
 ## Not yet verified (Phase 2+)
+- gSprites 0x0202063C (0x44 each) and gMapHeader 0x02036DFC: vanilla FR US (pokefirered symbols); used by
+  client/rr_visuals.lua, which validates both at runtime (docs/visuals.md). SaveBlock1+0x8E0 = objectEventTemplates[64].
+- ObjectEvent: +4 spriteId, +5 graphicsId, +0x0B elevation (low nibble), +0x1C movementActionId; flags bit6/7
+  heldMovementActive/Finished, bit8 frozen, bit13 invisible, bit16 isPlayer (pokefirered global.fieldmap.h).
 - ObjectEvent graphicsId/spriteId byte positions and facing nibble (+0x18 area: 0x44 / 0x24 observed)
 - gSaveBlock2Ptr 0x0300500C, gBattleMons, battle controller/AI action hook points
 - Whether Radical Red's added Mega/Z/Dynamax-style state lives outside the 100-byte struct (affects PvP)

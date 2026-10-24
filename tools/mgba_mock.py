@@ -177,6 +177,7 @@ class FakeGBA:
         self.socks: dict[int, socket.socket] = {}
         self._next = 0
         self.network_down = False
+        self.pre_frame = []
         self.py = _Py(self)
         self.lua = lupa.LuaRuntime(encoding=None, unpack_returned_tuples=True)
         prelude = self.lua.eval(b"function(...) " + PRELUDE + b" end")
@@ -203,6 +204,8 @@ class FakeGBA:
     def frame(self, n: int = 1):
         for _ in range(n):
             self.py.frame += 1
+            for hook in self.pre_frame:  # e.g. tools/fake_overworld.py: the "game" runs before the script
+                hook()
             self.lua.globals()[b"__frame"]()
 
     def kill(self):

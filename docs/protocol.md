@@ -52,7 +52,7 @@ of silence. Note: pausing the emulator stops the script, so a paused client time
 
 | Message | Notes |
 |---|---|
-| `{"t":"state","map":[3,0],"x":12,"y":8,"f":1,"b":0}` | presence. Server adds `from`, stores it for `welcome`, relays to the room. Client sends on change (sampled every 6 frames), at least once per second, max 15/s. `f` = facing (unverified, see ram_map.md), `b` = 1 in battle |
+| `{"t":"state","map":[3,0],"x":12,"y":8,"f":1,"b":0,"g":0,"e":3,"st":[[41,12,8,1,16]]}` | presence. `g` on-foot sprite id, `e` elevation, `st` last 8 steps `[seq,x,y,facing,movementActionId]` for puppet rendering (docs/visuals.md). Server adds `from`, stores it for `welcome`, relays to the room. Client sends on change (sampled every 6 frames), at least once per second, max 15/s. `f` = facing 1-4 down/up/left/right (verified), `b` = 1 in battle |
 | `{"t":"chat","text":"hi"}` | server sanitises (printable, ≤120 chars) and sends `{"t":"chat","from":1,"name":"Red","text":"hi"}` to everyone incl. sender |
 | `{"t":"direct","to":4,…}` | forwarded only to `to`, with `from` added |
 

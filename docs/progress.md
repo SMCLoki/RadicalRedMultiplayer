@@ -106,3 +106,18 @@ Both windows start with the same Chikorita, so window 2's PID was edited in RAM 
   Known limit: reloading a save from before SEVERAL chained trades can still mis-reconcile; a full fix would replay the
   journal in order against the loaded party. Worth a fake-mGBA test.
 - Not done: in-game save -> reset -> reload after a trade; trade evolutions; PC boxes; pause-timeout; script reload.
+
+## 2026-10-24 - cloud: player visuals (Phase 2 rendering)
+- New `client/rr_visuals.lua` (auto-loaded by rr_mp.lua): remote players on your map are spawned by the game
+  itself as NPC "puppets" (extra object-event templates + a patched `gMapHeader.events` copy with a larger
+  count) and walked with held movements (`FACE_*`, `WALK_NORMAL_*`, `WALK_FAST_*`); big jumps teleport;
+  leaving hides the puppet and lets the game delete it. Design, addresses and limits: `docs/visuals.md`.
+- Addresses from pret/pokefirered (symbols branch): `gSprites` 0x0202063C, `gMapHeader` 0x02036DFC; the four
+  already-verified RR addresses match vanilla, and the script validates both before writing (EWRAM scan
+  fallback for gSprites). SaveBlock1 template array at +0x8E0 (pokefirered `global.h`).
+- Presence now carries the last 8 steps, on-foot sprite and elevation. Commands: `mp.visuals(on)`, `mp.vis()`.
+- Tested: `tests/test_visuals.py` (7 tests: spawn after a step, follows walking with WALK actions, running ->
+  WALK_FAST, turning, teleport, leaving map -> removed by the game, disconnect -> header restored, real NPCs
+  untouched, validation failure -> nothing written, disabled). These run against `tools/fake_overworld.py`,
+  a model of the engine built from the decomp, NOT the real ROM. Real-emulator check: TODO (docs/visuals.md).
+
