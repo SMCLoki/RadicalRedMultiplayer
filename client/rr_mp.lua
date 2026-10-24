@@ -819,7 +819,12 @@ function handlers.trade_pending(m)
 end
 
 function handlers.trade_offered(m)
+  local old = S.trade
   S.trade = { txn = m.txn, role = "b", peer = m.from, stage = "offered", theirs = monInfo(m.mon) }
+  if old and old.peer == m.from and old.stage == "sending" then
+    -- our offer crossed theirs (both sent before seeing the other's); the server turned ours into the answer
+    S.trade.mine, S.trade.slot, S.trade.stage = old.mine, old.slot, "answered"
+  end
   event(string.format("%s offers %s. Type mp.accept(slot) to offer one of yours, or mp.decline()",
     m.name or peerName(m.from), monLabel(S.trade.theirs)))
 end

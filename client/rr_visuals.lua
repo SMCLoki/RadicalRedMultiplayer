@@ -379,6 +379,19 @@ function _RRMP_VISUALS_NEW(env)
         if f == 1 then dy = 1 elseif f == 2 then dy = -1 elseif f == 3 then dx = -1 elseif f == 4 then dx = 1 end
         local tx, ty = s16(emu:read16(po + 0x10)) + dx, s16(emu:read16(po + 0x12)) + dy
         local peer = at[tx .. "," .. ty]
+        if not peer then
+          -- fall back to any puppet object on that tile (e.g. its sprite isn't re-confirmed yet after a battle), so the
+          -- script is never left stale (real mGBA run 12: a "Waiting..." box from before a battle kept showing)
+          for i = 1, NOBJ - 1 do
+            local o = objAddr(i)
+            local k = emu:read8(o + 8) - LOCALID_BASE
+            if emu:read32(o) & F_ACTIVE ~= 0 and k >= 0 and k < MAX_PUPPETS and V.slotPeer[k]
+                and s16(emu:read16(o + 0x10)) == tx and s16(emu:read16(o + 0x12)) == ty then
+              peer = V.slotPeer[k]
+              break
+            end
+          end
+        end
         if peer then
           local addr = scriptAddr(sb1)
           local bytes = env.buildScript(peer, addr)

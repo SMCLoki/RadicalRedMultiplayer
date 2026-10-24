@@ -487,3 +487,10 @@ Beta checklist sections 1-3 pass on one PC. Open: section 4 (two PCs via Tailsca
   longer need typing into the Scripting window. Not loaded in the emulators yet.
 - Blocker: a Windows text-input panel (textinputhost.exe) stays in front and blocks clicks into mGBA; access was
   declined, so it has to be closed by hand before the remaining reloads.
+- Fixes after run 12 (not yet re-tested in the emulator - GUI blocked by the text-input panel):
+  - server: crossed trade offers (A->B and B->A before either saw the other) become one trade: B's offer is B's
+    answer and counts as B's confirmation; A gets the usual preview and confirms. New server test
+    `test_crossed_offers_become_one_trade` (35/35 pass). Server restarted with it.
+  - client: on a crossed offer the client keeps which Pokémon it offered (stage "answered").
+  - visuals: the talk script is refreshed for any puppet object on the faced tile, even when its sprite isn't
+    re-confirmed yet (likely cause of the stale "Waiting for Player1..." box after a battle).

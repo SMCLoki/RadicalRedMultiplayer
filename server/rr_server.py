@@ -536,6 +536,24 @@ class Server:
         if not isinstance(slot, int) or not 0 <= slot <= 5:
             raise ProtocolError("bad_msg", "slot must be 0-5")
         mon = parse_mon(msg.get("mon"))
+        crossed = self._trade_of(other)
+        if (crossed is not None and crossed.a is other and crossed.b is conn and crossed.b_mon is None
+                and self._trade_of(conn) is crossed):
+            # Both players offered to each other before either saw the other's offer (seen with ~300 ms of lag in
+            # real mGBA run 12). Treat this offer as the answer to theirs; picking the Pokémon is this player's
+            # consent, so they count as confirmed and only the first offerer still has to confirm.
+            if mon.fp == crossed.a_mon.fp:
+                raise ProtocolError("bad_mon", "cannot trade a Pokémon for itself")
+            crossed.b_slot, crossed.b_mon = slot, mon
+            crossed.deadline = time.monotonic() + self.cfg.trade_timeout
+            crossed.a.send({"t": "trade_preview", "txn": crossed.txn, "mon": mon.hex, "summary": mon.summary()})
+            conn.send({"t": "trade_offered", "txn": crossed.txn, "from": other.id, "name": other.name,
+                       "mon": crossed.a_mon.hex, "summary": crossed.a_mon.summary()})
+            conn.send({"t": "trade_preview", "txn": crossed.txn, "mon": crossed.a_mon.hex,
+                       "summary": crossed.a_mon.summary()})
+            crossed.confirmed.add(conn.uid)
+            other.send({"t": "trade_confirmed", "txn": crossed.txn, "by": conn.id})
+            return
         if self._trade_of(conn) or self._trade_of(other):
             raise ProtocolError("busy", "you or that player already have a trade open")
         if self._in_battle(conn) or self._in_battle(other):

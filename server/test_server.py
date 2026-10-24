@@ -296,6 +296,22 @@ class TradeTests(ServerTest):
         await a.expect("pong")
         self.assertEqual(self.server.pending_commits, {})
 
+    async def test_crossed_offers_become_one_trade(self):
+        # both players open TRADE CENTER before seeing the other's offer (lag): the second offer answers the first
+        a, b = await self.join("Red"), await self.join("Blue")
+        ma, mb = make_mon(1), make_mon(2, species=4)
+        await a.send({"t": "trade_offer", "to": b.id, "slot": 0, "mon": ma})
+        txn = (await a.expect("trade_pending"))["txn"]
+        await b.send({"t": "trade_offer", "to": a.id, "slot": 1, "mon": mb})
+        self.assertEqual((await a.expect("trade_preview"))["mon"], mb)
+        self.assertEqual((await a.expect("trade_confirmed"))["by"], b.id)
+        self.assertEqual((await b.expect("trade_preview"))["txn"], txn)
+        await a.send({"t": "trade_confirm", "txn": txn})
+        ca = await a.expect("trade_commit")
+        cb = await b.expect("trade_commit")
+        self.assertEqual((ca["mon"], ca["slot"]), (mb, 0))
+        self.assertEqual((cb["mon"], cb["slot"]), (ma, 1))
+
     async def test_invalid_mon_rejected(self):
         a, b = await self.join("Red"), await self.join("Blue")
         bad = make_mon(1, level=0)
