@@ -52,3 +52,20 @@ See `docs/ram_map.md`. Party structs unencrypted on RR.
 |---|---|---|---|---|---|---|---|---|---|
 | 2026-10-24 | 8 bots | 0.5 min | 62 | 37 | 12 (+11 crash-after-commit) | 0 | 0 | 0 | PASS |
 | 2026-10-24 | 8 bots | 10 min | 1654 | 759 | 230 (+197 crash-after-commit, 86 vanish-before-confirm) | 0 | 0 | 0 | PASS |
+
+
+## 2026-10-24 - first run in real mGBA 0.10.5 (local Windows session)
+
+- Offline tests: 34/34 server tests pass after a test fix (`test_disconnect_past_grace_loses` raced the turn timer on
+  Windows; it now has its own class with a 5 s turn timer). Soak 1 min: PASS, 0 dupes/lost.
+- **Crash found and fixed:** mGBA aborted (exit code 0x40000015) about 3 s after the client loaded. Cause: the trailing
+  `return M` in `client/rr_mp.lua`. mGBA 0.10 runs a script file with `lua_pcall(..., LUA_MULTRET)` and never pops the
+  results, so the table stayed on the Lua stack and the next callback (the socket poll) aborted. Removed, plus a static
+  regression test in `tests/test_client.py`. The fake mGBA did not model this.
+- Also: socket `close()` is now deferred to the client's own frame tick (closing from inside a socket callback removes the
+  socket's poll callback while mGBA is iterating the frame list).
+- Opt-in trace log: create `work/mp_trace_on` to get `work/mp_trace.txt`.
+- **Verified in the emulator:** connect, welcome, ping/pong, "RR Online" panel, both windows list each other with
+  map/x/y and `<< HERE`; killing and restarting the server -> both clients back online within ~3 s.
+- Not yet checked: `mp.*` console commands, game id in server log, pause-timeout, script reload, walking presence,
+  trading, battles.

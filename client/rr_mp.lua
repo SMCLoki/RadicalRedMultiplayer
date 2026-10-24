@@ -24,6 +24,12 @@ local function scriptDir()
   return src:match("^(.*)/[^/]*$") or "."
 end
 
+local TRACE_PATH
+function _RRMP_TRACE(msg)
+  if not TRACE_PATH then return end
+  local f = io.open(TRACE_PATH, "ab"); if f then f:write(os.clock(), " ", msg, string.char(10)); f:close() end
+end
+
 local function readFile(path)
   local f = io.open(path, "rb")
   if not f then return nil end
@@ -43,6 +49,7 @@ end
 local WORK = RRMP_WORK or (scriptDir() .. "/../work/")
 WORK = WORK:gsub("\\", "/")
 if not WORK:match("/$") then WORK = WORK .. "/" end
+if io.open(WORK .. "mp_trace_on", "rb") then TRACE_PATH = WORK .. "mp_trace.txt" end
 if not writeFile(WORK .. "mp_probe.tmp", "ok") then
   -- work/ is missing (fresh checkout): fall back to the script folder so we can still run.
   WORK = scriptDir() .. "/"
@@ -425,8 +432,19 @@ local function send(msg)
 end
 M.send = send
 
+-- Sockets are closed from our own frame callback, never from inside a socket callback: mGBA 0.10's
+-- socket:close() removes the socket's poll callback from the frame list while it is being run.
+local pendingClose = {}
+local function closePending()
+  for i = #pendingClose, 1, -1 do
+    local s = table.remove(pendingClose, i)
+    pcall(function() s:close() end)
+  end
+end
+
 local function drop(reason, retry)
-  if net.sock then pcall(function() net.sock:close() end) end
+  _RRMP_TRACE("drop " .. tostring(reason))
+  if net.sock then pendingClose[#pendingClose + 1] = net.sock end
   net.sock, net.inbuf, net.outbuf = nil, "", ""
   S.myId, S.peers = nil, {}
   if S.trade then S.trade = nil end
@@ -443,6 +461,7 @@ local function drop(reason, retry)
 end
 
 local function flush()
+  if net.outbuf ~= "" then _RRMP_TRACE("flush " .. #net.outbuf) end
   if not net.sock or net.outbuf == "" then return end
   local ok, sent, err = pcall(net.sock.send, net.sock, net.outbuf)
   if not ok then drop("send failed: " .. tostring(sent)); return end
@@ -463,14 +482,17 @@ local function processLine(line)
     event("bad message from server: " .. tostring(err))
     return
   end
+  _RRMP_TRACE("line " .. msg.t)
   local h = handlers[msg.t]
   if h then
     local ok, e = pcall(h, msg)
     if not ok then event("handler " .. msg.t .. " failed: " .. tostring(e)) end
+    _RRMP_TRACE("handled " .. msg.t)
   end
 end
 
 local function onReceived()
+  _RRMP_TRACE("onReceived")
   local sock = net.sock
   if not sock then return end
   local ok, data, err = pcall(sock.receive, sock, 4096)
@@ -513,7 +535,7 @@ local function connect()
   net.lastRx, net.nextPing = S.frame, S.frame + 2 * FPS
   sock:add("received", onReceived)
   -- mGBA calls socket callbacks as cb(socket, ...)
-  sock:add("error", function(_, e) if net.sock == sock then drop("socket error " .. tostring(e)) end end)
+  sock:add("error", function(_, e) _RRMP_TRACE("cb error " .. tostring(e)); if net.sock == sock then drop("socket error " .. tostring(e)) end end)
   send({ t = "hello", v = PROTO, name = cfg.name, room = cfg.room, game = gameId(), uid = uid(),
          client = "rr_mp.lua " .. VERSION })
   flush()
@@ -659,6 +681,7 @@ local function peerName(id)
 end
 
 function handlers.welcome(m)
+  _RRMP_TRACE("welcome")
   S.status, S.statusMsg, S.myId = "online", "", m.id
   S.maxPlayers = m.max or 8
   net.backoff = 1
@@ -826,7 +849,7 @@ end
 -- UI: scripting text buffer + work/mp_status_<profile>.txt
 
 local panel
-if console and console.createBuffer then
+if console and console.createBuffer and not io.open(WORK .. "mp_nopanel", "rb") then
   local ok, buf = pcall(console.createBuffer, console, "RR Online")
   if ok and buf then
     panel = buf
@@ -835,6 +858,7 @@ if console and console.createBuffer then
 end
 
 local function render()
+  _RRMP_TRACE("render")
   local L = {}
   local function add(s) L[#L + 1] = s end
   add(string.format("Radical Red Online %s  [%s%s]  room %s  you: %s%s  %s", VERSION, S.status,
@@ -875,8 +899,13 @@ local function render()
   end
   add("Type mp.help() in the scripting console for commands.")
   local text = table.concat(L, "\n")
+  _RRMP_TRACE("render text built")
   if panel then
-    pcall(function() panel:clear(); panel:print(text .. "\n") end)
+    _RRMP_TRACE("panel clear")
+    pcall(panel.clear, panel)
+    _RRMP_TRACE("panel print")
+    pcall(panel.print, panel, text .. "\n")
+    _RRMP_TRACE("panel done")
   end
   writeFile(WORK .. "mp_status_" .. PROFILE .. ".txt", text .. "\n")
   S.dirty = false
@@ -907,6 +936,8 @@ end
 
 local function tick()
   S.frame = S.frame + 1
+  if #pendingClose > 0 then closePending() end
+  if S.frame % 30 == 0 then _RRMP_TRACE("tick " .. S.frame) end
   local f = S.frame
   if cfg.manual_poll == "1" and net.sock and net.sock.poll then pcall(net.sock.poll, net.sock) end
   if net.sock then
@@ -1150,4 +1181,6 @@ event(string.format("rr_mp.lua %s loaded (profile %d, work dir %s). Type mp.help
 if net.auto then connect() end
 render()
 
-return M
+-- No `return M`: mGBA 0.10 runs the script without popping its return values, which crashes
+-- the emulator on the next callback. Use the global `mp` / _RRMP_INSTANCE instead.
+

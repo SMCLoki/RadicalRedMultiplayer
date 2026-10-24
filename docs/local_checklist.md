@@ -15,6 +15,8 @@ python tests\test_client.py         # Lua client end-to-end; skipped unless `pip
 `run_tests.bat` runs all three.
 
 ## 1. Phase 1 in the real emulator (two clients, one PC)
+
+> 2026-10-24 local run: two mGBA windows joined LOBBY and listed each other with position. See progress.md.
 1. `start_server.bat` (keeps a console window open; leave it running).
 2. Open mGBA with `work\rr.gba`, load a save/state in the overworld, Tools → Scripting → File → Load script →
    `client\rr_mp.lua`. Open a second mGBA with `work\rr2.gba` (`Start-Process`, never `open_application`) and
@@ -22,12 +24,12 @@ python tests\test_client.py         # Lua client end-to-end; skipped unless `pip
 3. Expect in each scripting window: buffer **"RR Online"** listing the other player, and
    `work\mp_status_1.txt` / `mp_status_2.txt` showing both. Server console shows two `joined room LOBBY`.
 4. Verify and record:
-   - [ ] `socket.connect` works from `rr_mp.lua` (connect status in the panel)
-   - [ ] the "RR Online" text buffer appears and refreshes (`console:createBuffer`, `setSize`)
+   - [x] `socket.connect` works from `rr_mp.lua` (connect status in the panel)
+   - [x] the "RR Online" text buffer appears and refreshes (`console:createBuffer`, `setSize`)
    - [ ] `emu:checksum()` returns 4 bytes → `game` id looks like `AGB-BPRE:xxxxxxxx` in the server log
    - [ ] typing `mp.help()`, `mp.who()`, `mp.say("hi")` in the console works (global `mp` reachable from the REPL)
    - [ ] no stutter: frame rate stays 60 with both connected (Tools → show FPS)
-   - [ ] stop the server: panel shows offline/retrying; restart it: both reconnect within ~10 s
+   - [x] stop the server: panel shows offline/retrying; restart it: both reconnect within ~10 s
    - [ ] pause one emulator > 10 s: the other sees it leave (timeout) and rejoin after unpausing
    - [ ] reload the script in the same window: no duplicate client (old instance is shut down)
 

@@ -267,5 +267,17 @@ class ClientTest(unittest.TestCase):
         self.assertIsNone(a.M.S.trade)
 
 
+
+class ScriptShapeTest(unittest.TestCase):
+    """Static checks for mGBA 0.10 quirks found in the real emulator (no lupa needed)."""
+
+    def test_script_does_not_return_values(self):
+        # mGBA 0.10 runs the script file without popping its return values; a trailing
+        # `return M` left a table on the Lua stack and aborted mGBA on the next callback.
+        path = os.path.join(os.path.dirname(__file__), "..", "client", "rr_mp.lua")
+        with open(path, encoding="utf-8") as f:
+            lines = [l for l in f.read().splitlines() if l.strip() and not l.strip().startswith("--")]
+        self.assertFalse(lines[-1].lstrip().startswith("return"), lines[-1])
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

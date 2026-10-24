@@ -511,6 +511,12 @@ class BattleTimeoutTests(ServerTest):
         r = await a.expect("battle_result")
         self.assertEqual((r["winner"], r["reason"]), (0, "turn_timeout"))
 
+
+
+class BattleGraceTests(ServerTest):
+    # turn timer much longer than the grace, so only the disconnect can end the battle
+    cfg_overrides = {"turn_timeout": 5.0, "battle_grace": 0.3}
+
     async def test_disconnect_past_grace_loses(self):
         a, b = await self.join("Red"), await self.join("Blue")
         await BattleTests.start_battle(self, a, b)
