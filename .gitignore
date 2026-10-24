@@ -11,3 +11,4 @@ work/
 __pycache__/
 *.pyc
 node_modules/
+server/data/
