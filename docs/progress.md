@@ -215,3 +215,32 @@ Tools: `client/battle_debug.lua` (state log per battle-loop step, file per windo
 - To verify in real mGBA: run `client/battle_debug.lua` in both windows again; rng should now match at every
   gBattleMainFunc change, and battles should reach a winner without `desync` (except speed ties).
 
+
+## 2026-10-24 - real mGBA run 6 (local): RNG fix e18ef91
+
+Two windows, each side given 2 Chikorita (second one copied in RAM with a new PID, test data); window 2's are Speed 30
+(window 1 Speed 10), so no speed ties. Logs: `docs/evidence_bdbg_run6_window1/2.txt` (battles 4-6, appended).
+
+Verified:
+1. **RNG matches at every battle-loop step** in both games for whole battles (same gRngValue at every
+   gBattleMainFunc change). The VBlank drift is fixed.
+   Side check: with a battle menu idle, gRngValue advances exactly 1 LCG step per frame (VBlankCB_Battle). A frame
+   callback that rewinds one step (x = (x - 0x6073) * 0xEEB9EB65) makes it advance 0 steps per frame, i.e. mGBA's
+   frame callback runs before the VBlank handler - an alternative way to cancel the per-frame call if needed.
+2. **Switching works:** window 1 switched to its second Chikorita on turn 2; window 2 showed the same opponent and
+   both agreed on HP.
+3. **Intro:** "You are challenged by Player Playe!" with the Red trainer sprite and 2 Poké Balls (class fixed;
+   name still cut to 5 characters).
+4. **mp.forfeit() works:** window 1 "you lose (forfeit)", window 2 "YOU WIN (forfeit)", server winner=1 reason
+   forfeit; both back on the map with party/money/options restored.
+
+Still desyncs (battles 4, 5, 6 at turn 4, 3, 2): **side asymmetry, not RNG.** With identical RNG at every step:
+- Battle 6 turn 1: Player1's Tackle did 5 damage in window 1 (Player1 = player side, battler 0) but 4 in window 2
+  (Player1 = opponent side, battler 1). Same attacker stats in both (lvl 5, Atk 10, Def 10 checked).
+- Battle 5 turn 2: in window 2 only, the opponent-side Pokémon (Player1's) ended the turn at 20 HP instead of 12, and
+  that turn took 631 frames vs 239 in window 1 - something extra played only on the opponent side.
+Candidates: a player-side-only damage modifier (vanilla's badge boost is skipped for e-reader battles, but CFRU/RR's
+damage code may only exclude LINK), and trainer-AI item use for the opponent side (healing at low HP) that isn't
+blocked by overwriting the action byte. Either way each game treats "its" player differently from the opponent,
+so Option B can't be fully symmetric - this points to Option A (link battle mode, both games run battler 0 = master).
+Not tested yet: a faint/replacement round and a battle reaching a natural winner (desync always came first).
