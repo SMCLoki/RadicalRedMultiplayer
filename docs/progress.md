@@ -348,3 +348,18 @@ Suggested fix: when feeding battler 1's reply, also clear CFRU's per-battler Z-M
 flags for battler 1 (and set them only if the remote decision says so, once the client sends a Z/Mega flag), or make
 the opponent controller's move handler skip the AI's Z decision. The remote action format may need a `z` field so a
 player who presses the Z button gets the same on both machines.
+
+## 2026-10-24 - cloud: fix for run 8 (opponent side used a Z-Move)
+- Cause (confirmed in CFRU source): CFRU's move reply is 8 bytes, `EmitMoveChosen` =
+  {0x21, 10, slot, target, mega, ultraBurst, zMove, dynamax}, and `mega.c` ORs bytes 4-7 into gNewBS's per-battler
+  "use it" flags when the reply is processed. The engine wrote only the vanilla 4 bytes for battler 1, so stale bytes
+  from earlier buffer traffic turned the remote player's move into a Z-Move (once per battle -> only the first attack).
+- Fix (`client/rr_battle.lua`): battler 1's replies always write all 8 bytes; the move reply carries the remote
+  player's real Mega/Ultra/Z/Dynamax choice, read from the local player's own reply bytes 4-7 and sent as `g` in the
+  decision. Pressing the Z button (or Mega/Dynamax) now applies on both machines.
+- `tools/fake_battle.py` models the 8-byte reply, the OR into the Z flag, stale intro bytes in battler 1's buffer and
+  a once-per-battle Z-Move; new test `test_z_move_pressed_by_a_player_is_used_on_both_machines`. 8/8 battle tests
+  pass (3 runs).
+- `tools/compare_traces.py` only looks at the first battle in each file and skips leftover pre-init lines; on the
+  run-8 traces it now reports the Z-Move script step (0x0900188A) as the first difference, with equal RNG.
+

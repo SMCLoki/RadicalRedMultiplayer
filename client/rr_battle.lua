@@ -206,15 +206,25 @@ function _RRMP_BATTLE_NEW(env)
   local function remoteFor(c, rd) return c.remote[rd.id] end
 
   -- write battler 1's reply for the stage the main loop is about to read
+  -- CFRU's move reply is 8 bytes (EmitMoveChosen): {0x21, 10, slot, target, mega, ultraBurst, zMove, dynamax},
+  -- and mega.c ORs bytes 4-7 into gNewBS's per-battler "use it" flags. Always write all 8 bytes, or stale bytes
+  -- left in the buffer turn the remote player's move into a Z-Move/Mega/Dynamax (real mGBA run 8).
+  local function gimmickBytes(g)
+    g = tonumber(g) or 0
+    return (g & 1) | (((g >> 1) & 1) << 8) | (((g >> 2) & 1) << 16) | (((g >> 3) & 1) << 24)
+  end
+
   local function writeRemoteReply(stage, d)
     local b1 = A.bufB + BUF
     if stage == "action" then
       w32(b1, CMD_TWO | ((d.k == "s" and 2 or 0) << 8))
+      w32(b1 + 4, 0)
     elseif stage == "case" then
-      if d.k == "s" then w32(b1, CMD_MON | ((d.i or 0) << 8))
+      if d.k == "s" then w32(b1, CMD_MON | ((d.i or 0) << 8)); w32(b1 + 4, 0)
       else
         local target = (d.t == 0) and 1 or 0     -- their battler 0 is our battler 1 and vice versa
         w32(b1, CMD_TWO | (10 << 8) | (((d.s or 0) & 3) << 16) | (target << 24))
+        w32(b1 + 4, gimmickBytes(d.g))
       end
     elseif stage == "replace" then
       w32(b1, CMD_MON | ((d.i or 0) << 8))
@@ -323,7 +333,12 @@ function _RRMP_BATTLE_NEW(env)
         if not rd.decision and (st0 == 3 or st0 == 4) then
           local act = r8(A.chosenAction)
           if act == 2 then rd.decision = { k = "s", i = r8(A.bufB + 1) }
-          else rd.decision = { k = "m", s = r8(A.bufB + 2), t = r8(A.bufB + 3) } end
+          else
+            -- g: the local player's Mega / Ultra Burst / Z-Move / Dynamax choice (CFRU reply bytes 4-7)
+            local g = 0
+            for i = 0, 3 do if r8(A.bufB + 4 + i) ~= 0 then g = g | (1 << i) end end
+            rd.decision = { k = "m", s = r8(A.bufB + 2), t = r8(A.bufB + 3), g = g }
+          end
         end
         -- battler 1: park before the main loop sends CHOOSEACTION, answer each stage with the remote choice
         if st1 == 0 and not (remote and remote.k == "ai") then park(c) end

@@ -152,6 +152,19 @@ class BattleTest(unittest.TestCase):
         self.assertEqual(a.fb.log[1:], self.mirrored(b.fb.log[1:]))
         self.assertEqual(list(self.srv.server.battle_log.read())[-1]["reason"], "normal")
 
+    def test_z_move_pressed_by_a_player_is_used_on_both_machines(self):
+        # Run 8: stale buffer bytes made the opponent side use a Z-Move. Now the reply carries explicit flags, and a
+        # player's own Z choice travels with the decision.
+        a = self.client("Red", 5, [mon(1, 152, 60, hp=80)], plan=[("mz", 0)])
+        b = self.client("Blue", 8, [mon(3, 4, 40, hp=80)])
+        self.start(a, b)
+        self.until(lambda: self.finished(a, b), frames=20000, msg="finished")
+        self.assertEqual(list(self.srv.server.battle_log.read())[-1]["reason"], "normal")
+        self.assertIn("b0 surrounded itself with its Z-Power", a.fb.log)
+        self.assertIn("b1 surrounded itself with its Z-Power", b.fb.log)
+        self.assertEqual(sum("Z-Power" in l for l in a.fb.log), 1, "only Red used a Z-Move, once")
+        self.assertEqual(a.fb.log[1:], self.mirrored(b.fb.log[1:]))
+
     def test_forfeit_ends_both_games(self):
         a = self.client("Red", 5, [mon(1, 152, 60, hp=200), mon(2, 25, 55)])
         b = self.client("Blue", 8, [mon(3, 4, 40, hp=200), mon(4, 7, 35)])

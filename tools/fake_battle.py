@@ -24,6 +24,10 @@ client/rr_battle.lua. Follows pret/pokefirered battle_main.c where the engine de
   nothing), and an AI side effect like CFRU's predictions: every AI decision leaves a damage bonus in a global
   that the next attack uses, so running the AI on only one machine desyncs
 
+- CFRU's 8-byte move reply (EmitMoveChosen: ..., mega, ultra, zMove, dynamax); the main loop ORs the zMove byte
+  into a per-battler "use Z" flag (mega.c), a Z-Move doubles damage once per battle; battler 1's buffer starts
+  with stale intro bytes (byte 6 nonzero), like run 8 where a 4-byte override turned a move into a Z-Move
+
 It is a test double built from the decomp, not the real engine (no abilities, types, items or status).
 """
 from __future__ import annotations
@@ -183,6 +187,8 @@ class FakeBattle:
         self.w(GMAIN + 4, 4, CB_BATTLE)
         self.w(OUTCOME, 1, 0)
         self.w(EXEC, 4, 0)
+        self.z_used = [False, False]
+        self.w(self.bufb(1) + 4, 4, 0x00010100)      # stale bytes from intro data transfers (byte 6 = 1)
         self.begin_selection()
         self.state = "battle"
         self.log.append(f"start {self.species(0)} vs {self.species(1)}")
@@ -225,7 +231,8 @@ class FakeBattle:
                 elif st == 2 and not self.exec_bit(b):
                     if self.r(CHOSEN_ACTION + b, 1) == 0:
                         if self.r(self.bufb(b) + 1, 1) == 10:
-                            self.chosen[b] = ("m", self.r(self.bufb(b) + 2, 1) & 3)
+                            z = self.r(self.bufb(b) + 6, 1) != 0 and not self.z_used[b]   # mega.c: |= byte 6
+                            self.chosen[b] = ("mz" if z else "m", self.r(self.bufb(b) + 2, 1) & 3)
                             self.w(COMM + b, 1, 3)
                         else:
                             self.w(COMM + b, 1, 0)
@@ -306,6 +313,10 @@ class FakeBattle:
         if b == 1 and self.r(AI_GLOBAL, 1):            # AI prediction state left behind for the battler it ran for
             dmg += 1
         dmg = dmg * (2 if crit else 1)
+        if kind == "mz":
+            self.z_used[b] = True
+            dmg *= 2                                    # Z-Move
+            self.log.append(f"b{b} surrounded itself with its Z-Power")
         self.w(AI_GLOBAL, 1, 0)
         hp = max(0, self.r(self.mon(target) + 0x28, 2) - dmg)
         self.w(self.mon(target) + 0x28, 2, hp)
@@ -367,10 +378,11 @@ class FakeBattle:
             return
         kind, val = self.inputs[0]
         b0 = self.bufb(0)
-        if cmd == CHOOSEACTION and kind in ("m", "s"):
-            self.w(b0, 4, TWO | ((0 if kind == "m" else 2) << 8))
-        elif cmd == CHOOSEMOVE and kind == "m":
+        if cmd == CHOOSEACTION and kind in ("m", "mz", "s"):
+            self.w(b0, 4, TWO | ((2 if kind == "s" else 0) << 8))
+        elif cmd == CHOOSEMOVE and kind in ("m", "mz"):
             self.w(b0, 4, TWO | (10 << 8) | (val << 16) | (1 << 24))
+            self.w(b0 + 4, 4, (1 << 16) if kind == "mz" else 0)   # EmitMoveChosen bytes 4-7
             self.inputs.pop(0)
         elif cmd == CHOOSEPOKEMON and kind in ("s", "r"):
             self.w(b0, 4, CHOSENMON | (val << 8))
@@ -388,6 +400,7 @@ class FakeBattle:
             self.w(b1, 4, TWO | ((2 if self.rand() % 4 == 0 and len(self.alive(1)) > 1 else 0) << 8))
         elif cmd == CHOOSEMOVE:
             self.w(b1, 4, TWO | (10 << 8) | ((self.rand() & 3) << 16))
+            self.w(b1 + 4, 4, (1 << 16) if self.rand() % 2 else 0)   # the AI likes Z-Moves
         elif cmd == CHOOSEPOKEMON:
             options = [i for i in self.alive(1) if i != self.active[1]]
             pick = options[self.rand() % len(options)] if options else 0

@@ -3,7 +3,7 @@
 
     python tools/compare_traces.py work/btrace_pilot.txt work/btrace_pilot2.txt
 
-Steps are matched by (gBattleMainFunc, gBattlescriptCurrInstr, occurrence). Window 2 is mirrored (its battler 0
+Steps are matched by (gBattleMainFunc, gBattlescriptCurrInstr, occurrence), first battle in each file only. Window 2 is mirrored (its battler 0
 is window 1's battler 1). Reported, in this order:
 1. battle data (gBattleMons) differences at turn starts, field by field - e.g. ability, types, stat stages;
 2. the first step (present in both logs) where damage, crit multiplier or HP differ, with whether the random value
@@ -30,10 +30,23 @@ FIELDS = [(0x00, 2, "species"), (0x02, 2, "attack"), (0x04, 2, "defense"), (0x06
           (0x50, 4, "status2"), (0x54, 4, "otId")]
 
 
+BATTLE_INIT = {"080123BD", "080123C1"}   # gBattleMainFunc values right after CB2_InitBattle
+
+
 def load(path, mirror):
+    """Only the first battle in the file: lines before its init (leftover gBattleMons of an earlier battle) and
+    lines of later battles are skipped."""
     steps, mons, occ, lags = [], [], collections.Counter(), 0
+    started = False
     for raw in open(path, encoding="utf-8", errors="replace"):
         line = raw.strip()
+        init = re.search(r"main=(080123BD|080123C1)", line)
+        if init and not started:
+            started = True
+        elif init and started and (steps or mons) and not re.search(r"main=080123C1", line):
+            break                                   # next battle
+        if not started:
+            continue
         m = MONS.match(line)
         if m:
             b0, b1 = bytes.fromhex(m.group(2)), bytes.fromhex(m.group(3))
