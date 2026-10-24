@@ -1,6 +1,18 @@
 # Phase 4 — PvP battle engine hooks (research plan for the in-emulator session)
 
-Status: **network side done and tested; game side not started.**
+Status: **network side done and tested; battle addresses found (2026-10-24, see ram_map.md "Battle"); engine not started.**
+
+Local findings for the engine (all verified in real mGBA on RR, vanilla FR addresses hold):
+- Opponent override point (Option B): while gBattleMainFunc == 0x08014041, the AI writes gBattleBufferB[1]
+  (0x020235C4: 0x21, 10, slot, target) and gChosenMoveByBattler[1] (0x02023DC6) within ~7 frames. Overwrite both
+  after that and before gBattleMainFunc changes (>= ~20 frames of slack in the rival fight).
+- localAction: read gBattleBufferB[0] (0x020233C4) once byte 0 = 0x21 during 0x08014041; byte 2 = move slot.
+- result: gBattleOutcome 0x02023E8A (1 win / 2 loss expected; 2 observed).
+- Starting a battle: callbacks and savedCallback values are in ram_map.md (CB2 0x0800FD9D = init, return-to-field
+  0x090B14C5). Trainer battles load the trainer's party during init, so gEnemyParty must be written after
+  0x08010509 runs or the trainer id must point at an empty/controlled party - not tested yet.
+- RNG: gRngValue 0x03005000 differed between the Tackle and Growl runs right after the choice (input timing changes RNG
+  use), so the per-turn reseed must happen after both actions are locked in, as planned.
 
 Done (cloud session, tested in `server/test_server.py`, `tests/test_client.py`, `server/soak.py`):
 - Server lockstep coordinator: challenge/accept, team exchange + validation, shared u32 seed, per-turn

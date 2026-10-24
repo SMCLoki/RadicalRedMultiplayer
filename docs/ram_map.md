@@ -62,3 +62,39 @@ mons** (check in Phase 3).
 ## Verification procedure (repeat if the ROM changes)
 1. Launch `work/rr.gba` in mGBA Qt, Tools > Scripting > File > Load script > `client/probe.lua`.
 2. Report: `work/probe_out.txt` (rewritten every 2 s) incl. raw hex dumps.
+
+## Battle (verified 2026-10-24, local session, deterministic dump diffs in real mGBA)
+Method: `pilot.lua` LOADSTATE + frame-exact inputs + DUMP, two runs differing in one input (Tackle vs Growl from
+`states/rival_battle_menu.ss`), diffed offline; repeat runs differ only in 3 noise bytes (0x0300539C, 0x03005E8D/E,
+0x03005EA7/8). All match vanilla FireRed 1.0 symbols.
+
+| Name | Address | Size | Evidence |
+|---|---|---|---|
+| gBattleMons | 0x02023BE4 | 4 x 0x58 | species +0 (152 / 4), moves +0x0C (33,45 / 10,45,206), HP +0x28, level +0x2A, maxHP +0x2C; Tackle took Charmander 20 -> 18, Growl run stayed 20 |
+| gBattlersCount | 0x02023BCC | u8 | 2 in a single battle |
+| gCurrentMove | 0x02023D4A | u16 | 0x21 (Tackle) vs 0x2D (Growl) right after choosing |
+| gChosenActionByBattler | 0x02023D7C | 4 x u8 | 0x00 (use move) while chosen, 0xFF when cleared at turn start |
+| gChosenMoveByBattler | 0x02023DC4 | 4 x u16 | [0] = player's move id, [1] = AI's move id (0x2D, 0x0A, 0xCE seen) |
+| gMoveSelectionCursor | 0x02023FFC | 4 x u8 | 0 on Tackle, 1 after pressing Right |
+| gBattleBufferB | 0x020233C4 | 4 x 0x200 | controller reply per battler: [0]=0x21 (TWO_RETURN_VALUES), [1]=10, [2]=move slot, [3]=target. Battler 1 at 0x020235C4 |
+| gBattleOutcome | 0x02023E8A | u8 | 0 during battle, 2 after losing the rival fight |
+| gBattleMainFunc | 0x03004F84 | ptr | 0x08014041 while choosing actions; 0x080150A9 -> 0x080154A1 -> 0x080155C9 when the turn runs; 0x08013B1D -> 0x08013BD5 at turn end; 0x08015A31 -> 0x08015B59 at battle end |
+| gBattleStruct (pointer) | 0x02023FE8 | ptr | 0x02000010 |
+| gBattleTypeFlags values | 0x02022B4C | u32 | 0x08 trainer during transition, 0x0C (trainer + master) in battle, 0 after |
+
+### gMain callbacks (gMain 0x030030F0: callback1 +0, callback2 +4, savedCallback +8)
+| Phase | callback1 | callback2 | savedCallback |
+|---|---|---|---|
+| overworld | 0x08056535 | 0x080565B5 | - |
+| trainer battle transition | 0x08056535 | 0x080565A9 | 0x090B14C5 (RR return-to-field, in expanded ROM) |
+| battle init | 0x08056535 | 0x0800FD9D, then 0x08010509 (gBattleMainFunc 0x080123BD/0x080123C1) | 0x090B14C5 |
+| battle | 0x080123E5 | 0x08011101 | 0x090B14C5 |
+| back to field | 0x08056535 | 0x080568E1 -> 0x08056809 -> 0x080565B5 | 0x090B14C5 |
+Recorded with `CBLOG` while the rival battle started (`states/lab_after_starter.ss`, walk down) and ended.
+
+### Turn timing (one turn, from `turn_cblog.txt`)
+Turn start: gBattleMainFunc 0x08014041, actions reset to 0xFF. ~7 frames later the AI's reply lands in gBattleBufferB[1]
+and gChosenMoveByBattler[1]; the player's reply lands in gBattleBufferB[0] when the move is picked;
+gChosenMoveByBattler[0] is copied 1 frame later; 2 frames after that gBattleMainFunc leaves 0x08014041 (turn executes).
+Open question: after one A tap from the move menu, later turns were answered for the player without input (~12 frames
+after the prompt). With no input at all the battle waits. Not explained yet - check before relying on localAction.
