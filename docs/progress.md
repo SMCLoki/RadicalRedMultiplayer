@@ -35,7 +35,7 @@ See `docs/ram_map.md`. Party structs unencrypted on RR.
 - Tests: happy path, invalid mons, kill before commit (no change), kill after commit (redelivered and applied
   on restart), old-save reload (re-applied once), trade blocked in battle.
 - Soak (`server/soak.py`, 8 bots, ~1 % chance per action to drop, 10 % crash right after commit, 5 % vanish
-  before confirm): 30 s run → 62 trades, 0 dupes/0 losses; 10-minute run: see below.
+  before confirm): 10-minute run → 1654 trades, 759 battles, 0 dupes/0 losses/0 desyncs (table below).
 - Party-only; PC boxes not supported. Trade evolutions not triggered.
 
 ## Phase 4 — PvP: network TESTED, engine TODO
@@ -51,3 +51,4 @@ See `docs/ram_map.md`. Party structs unencrypted on RR.
 | date | clients | duration | trades | battles (per side) | disconnects | dupes | losses | desyncs | result |
 |---|---|---|---|---|---|---|---|---|---|
 | 2026-10-24 | 8 bots | 0.5 min | 62 | 37 | 12 (+11 crash-after-commit) | 0 | 0 | 0 | PASS |
+| 2026-10-24 | 8 bots | 10 min | 1654 | 759 | 230 (+197 crash-after-commit, 86 vanish-before-confirm) | 0 | 0 | 0 | PASS |
