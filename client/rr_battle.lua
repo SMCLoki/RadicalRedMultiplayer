@@ -164,6 +164,14 @@ function _RRMP_BATTLE_NEW(env)
     return h
   end
 
+  -- LCG helpers: gRngValue is x*0x41C64E6D+0x6073, RR's second battle RNG is x*0x41C64E6D+12345 (same multiplier,
+  -- whose inverse mod 2^32 is 0xEEB9EB65)
+  local function rngNext(x) return (x * 0x41C64E6D + 0x6073) & 0xFFFFFFFF end
+  local function rngPrev(x) return ((x - 0x6073) * 0xEEB9EB65) & 0xFFFFFFFF end
+  local function rng2Next(x) return (x * 0x41C64E6D + 12345) & 0xFFFFFFFF end
+  local function rng2Prev(x) return ((x - 12345) * 0xEEB9EB65) & 0xFFFFFFFF end
+  local TURN_ORDER = tonumber(cfg.turn_order_func or "") or 0x080150A9   -- SetActionsAndBattlersTurnOrder
+
   local function lockRng(c, main)
     local instr = r32(A.scriptInstr)
     local rid = c.roundId or 0
@@ -176,8 +184,17 @@ function _RRMP_BATTLE_NEW(env)
     end
     if r32(A.execFlags) == 0 then
       local seed = logicSeed(c, rid, main, instr, c.rngOcc)
+      local seed2 = seed ~ 0x5EED2222
+      if main == TURN_ORDER and c.b.side == 1 then
+        -- Speed ties are decided by the first Random() & 1 of the turn-order step, but each game is battler 0 for
+        -- its own player, so the same bit would let a different player move first on each machine (real mGBA run
+        -- 11). On side 1, start from the seed whose first output has bit 0 flipped: the mirrored battler wins the
+        -- tie, i.e. the same player. Done for both generators; nothing else in this step should draw randoms.
+        seed = rngPrev(rngNext(seed) ~ 0x10000)
+        seed2 = rng2Prev(rng2Next(seed2) ~ 0x10000)
+      end
       w32(A.rng, seed)
-      if A.rng2 ~= 0 then w32(A.rng2, seed ~ 0x5EED2222) end
+      if A.rng2 ~= 0 then w32(A.rng2, seed2) end
     end
   end
 

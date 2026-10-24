@@ -631,7 +631,10 @@ local function applyCommit(m)
     send({ t = "trade_done", txn = m.txn, status = "bad_mon" })
     return
   end
-  if findFp(recv.fp) then
+  -- Already applied only if the received Pokémon is here AND the given one is gone: two saves copied from the same
+  -- file hold identical Pokémon (same PID+OT), so "received fp present" alone skipped a real trade and duplicated
+  -- the given Pokémon (real mGBA run 11).
+  if findFp(recv.fp) and not findFp(m.give) then
     send({ t = "trade_done", txn = m.txn, status = "applied" })
     return
   end
@@ -1089,13 +1092,15 @@ if okCb then shutdownCb = id end
 -- COLOSSEUM menu, YES/NO box and party screen. The script leaves its answer in special variables:
 -- 0x8007 = which question, 0x8005 = menu/YES-NO answer, 0x8004 = party slot, 0x8006 = "done" marker.
 -- FireRed script opcodes: pokefirered data/script_cmd_table.inc; menu 39 = MULTICHOICE_TRADE_CENTER_COLOSSEUM;
--- special 160 = ChoosePartyMon (result in 0x8004). Both can be overridden (menu_list, special_choose_party).
+-- special 159 (0x9F) = ChoosePartyMon (result in 0x8004): RR's own trade scripts use special 159 + waitstate + copyvar
+-- x, 0x8004 (43 uses in the ROM); 160 hangs the script (real mGBA run 11). Both can be overridden (menu_list,
+-- special_choose_party).
 
 local SV = { v8004 = 0x020370C0, v8005 = 0x020370C2, v8006 = 0x020370C4, v8007 = 0x020370C6,
              lastTalked = 0x020370D2 }
 local SCRIPT_DONE = 0x4D50
 local MENU_LIST = tonumber(cfg.menu_list or "") or 39
-local SPECIAL_CHOOSE_PARTY = tonumber(cfg.special_choose_party or "") or 160
+local SPECIAL_CHOOSE_PARTY = tonumber(cfg.special_choose_party or "") or 159
 local Q_MENU, Q_TRADE_OFFER, Q_BATTLE_INVITE, Q_TRADE_PREVIEW, Q_WAITING, Q_BUSY = 1, 2, 3, 4, 5, 6
 
 local function gen3text(str)

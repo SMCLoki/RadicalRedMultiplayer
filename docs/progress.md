@@ -429,3 +429,30 @@ Battle 14 (traces: docs/evidence_btrace_run10_b14_window1/2.txt): **18 turns, no
 money and options restored, puppets drawn.
 compare_traces.py still prints false "differences" around the faint/replacement steps (different script paths per
 side for the replacement prompt) although the per-turn hashes matched all 18 turns - the tool needs to align those.
+
+## 2026-10-24 - real mGBA run 11 (local): more battles, talk menu, trades, speed ties
+
+PvP (section 1 of beta_checklist.md), all with traces:
+- Battles 15, 16, 17: 18 turns each, natural winner, no desync; battle 17 included a voluntary switch on turn 1
+  (window 2 showed the new opponent immediately, HP in sync).
+- **Speed ties fixed.** After a trade both active Chikorita had Speed 30 and battles 18/19 desynced: the tie bit was
+  the same in both games but meant a different player (each game is battler 0 for itself). Fix in rr_battle.lua: on
+  the turn-order step (gBattleMainFunc 0x080150A9, SetActionsAndBattlersTurnOrder) side 1 gets the seed whose first
+  output has bit 0 flipped (seed = prev(next(seed) ^ 0x10000), for both generators). Battle 20 (exact tie every turn,
+  traces `docs/evidence_btrace_run11_b20_tie_window1/2.txt`): 8 turns, natural winner, no desync, Player2 moved first in
+  both games every turn.
+- Z button: not testable (no Z-Crystal holder in the test parties).
+
+Talk-to-player menu (section 2):
+- Face the other player's character + A: "<name>: Let's link up! Trade or battle?" and TRADE CENTER / COLOSSEUM / EXIT.
+- **TRADE CENTER hung with special 160.** RR's own trade scripts use special 159 (0x9F) + waitstate + copyvar x, 0x8004
+  (43 uses in the ROM, the only special followed by copyvar 0x8004). Default changed to 159: the party screen opens.
+- Full menu trade: window 1 offers -> window 2 talks: "Player1 offers Chikorita! Trade one of yours for it?" -> Yes ->
+  party screen -> pick; window 1 talks: "Player2 offers Chikorita for your Chikorita. Trade?" -> Yes -> TRADE DONE in
+  both, server committed.
+- **Clone-save dupe fixed:** both test saves came from one save state, so the Pokémon window 2 was due to receive had the
+  same PID+OT as one it already owned; applyCommit treated "received fp present" as already applied, skipped the swap
+  and kept the given Pokémon (dupe). Now "already applied" also requires the given Pokémon to be gone. Re-tested with
+  the clone case: both sides "TRADE DONE".
+- COLOSSEUM: window 2 talks -> "Player1 wants to battle! Accept the challenge?" -> Yes -> battle starts in both.
+- Note: mashing A while facing another player opens the menu repeatedly (cancelled offers, no trade committed).
