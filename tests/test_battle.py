@@ -47,11 +47,11 @@ class BattleTest(unittest.TestCase):
         self.srv.stop()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def client(self, name, x, party, plan=None):
+    def client(self, name, x, party, plan=None, extra=None):
         work = os.path.join(self.tmp, name)
         os.makedirs(work)
         g = FakeGBA(work, profile=1, config={"host": "127.0.0.1", "port": self.srv.port, "room": "PVP",
-                                             "name": name, "visuals": "0"})
+                                             "name": name, "visuals": "0", **(extra or {})})
         ow = FakeOverworld(g)
         ow.define_map(3, 0, [])
         ow.load_map(3, 0, x, 5)
@@ -132,6 +132,7 @@ class BattleTest(unittest.TestCase):
         sb2 = a.py.read(0x0300500C, 4)
         self.assertEqual([a.py.read(sb2 + 0x4A4 + i, 1) for i in range(4)], [0xBC, 0xE0, 0xE9, 0xD9],
                          "opponent's name 'Blue' in the e-reader trainer slot")
+        self.assertEqual(a.py.read(sb2 + 0x4A1, 1), 134, "class FACILITY_CLASS_RED for a male player sprite")
         self.until(lambda: self.finished(a, b), msg="battle finished and restored")
         self.assertEqual(a.fb.log[1:], self.mirrored(b.fb.log[1:]), "both games played the same battle")
         self.assertTrue(any("replace" in l for l in a.fb.log), "a faint replacement happened")
@@ -163,6 +164,15 @@ class BattleTest(unittest.TestCase):
         self.assertEqual(a.py.read(OUTCOME, 1), 1)
         for g in (a, b):
             self.assert_restored(g)
+
+    def test_without_rng_lock_animations_desync(self):
+        # Control for the fix: VBlank Random() + side-dependent animation lengths (real mGBA run 5) make
+        # time-based seeding drift; with rng_lock=0 the same battle as test_full_battle_stays_in_sync desyncs.
+        a = self.client("Red", 5, [mon(1, 152, 60), mon(2, 25, 55)], extra={"rng_lock": "0"})
+        b = self.client("Blue", 8, [mon(3, 4, 40), mon(4, 7, 35)], extra={"rng_lock": "0"})
+        self.start(a, b)
+        self.until(lambda: self.finished(a, b), msg="ended")
+        self.assertEqual(list(self.srv.server.battle_log.read())[-1]["reason"], "desync")
 
     def test_speed_tie_is_detected_as_desync(self):
         # Battler-index tie breaks run mirrored on the two machines (docs/phase4_battle.md, "known limit"):

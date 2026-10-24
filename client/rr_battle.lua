@@ -13,8 +13,12 @@
 --   normal menus; we read the result. Battler 1's controller is the AI; we hold it ("stall": keep its
 --   gBattleControllerExecFlags bit set so the main loop waits and the AI just re-runs) until the other
 --   player's choice arrives, then overwrite its reply in gBattleBufferB before the main loop reads it.
--- * RNG: both sides load the same per-round seed into gRngValue right before the game consumes the round's
---   choices, so damage rolls etc. match. A per-round state hash detects desyncs.
+-- * RNG: VBlankCB_Battle calls Random() every frame and animations (drawn on different sides on the two
+--   machines) take different numbers of frames, so time-based seeding drifts (real mGBA run 5). Instead the
+--   random value is keyed to the game's logical position: at the end of every frame in which the battle script
+--   may run (gBattleControllerExecFlags == 0, the RunBattleScriptCommands gate), gRngValue is set from
+--   (seed, round, gBattleMainFunc, gBattlescriptCurrInstr, how often that position was reached this round).
+--   Visual code still gets random numbers while controllers animate. A per-round state hash detects desyncs.
 -- * end: gBattleOutcome; afterwards the party (rr_mp backup), money, battle-style option and e-reader slot are
 --   restored once the game is back on the map.
 
@@ -28,7 +32,7 @@ function _RRMP_BATTLE_NEW(env)
     bufA = 0x02022BC4, bufB = 0x020233C4, mons = 0x02023BE4, comm = 0x02023E82, outcome = 0x02023E8A,
     chosenAction = 0x02023D7C, rng = 0x03005000, enemyParty = 0x0202402C, enemyCount = 0x0202402A,
     trainerA = 0x020386AE, sb1Ptr = 0x03005008, sb2Ptr = 0x0300500C, objEvents = 0x02036E38,
-    battleStructPtr = 0x02023FE8,
+    battleStructPtr = 0x02023FE8, scriptInstr = 0x02023D74,
   }
   local BS_MON_TO_SWITCH = tonumber(cfg.bs_mon_to_switch or "") or 0x5C  -- gBattleStruct->monToSwitchIntoId
   local CB_OVERWORLD = tonumber(cfg.cb_overworld or "") or 0x080565B5
@@ -65,7 +69,8 @@ function _RRMP_BATTLE_NEW(env)
     return { money = tonumber(money), options = tonumber(options), ereader = ereader }
   end
 
-  -- Gen 3 text encoding for the opponent's name (5 chars shown in "<class> <name> would like to battle!")
+  -- Gen 3 text encoding for the opponent's name. The game shows only 5 characters for an e-reader trainer
+-- (CopyEReaderTrainerName5), so "Player2" appears as "Playe": a hard limit of this battle type.
   local function encodeName(name)
     local out = {}
     for i = 1, math.min(#name, 5) do
@@ -115,7 +120,10 @@ function _RRMP_BATTLE_NEW(env)
     -- side would see)
     local name = encodeName(tostring(b.opp and b.opp.name or "Rival"))
     for i = 1, 8 do w8(sb2 + SB2_EREADER + 4 + i - 1, name[i]) end
-    if tonumber(cfg.pvp_class or "") then w8(sb2 + SB2_EREADER + 1, tonumber(cfg.pvp_class)) end
+    -- class: FACILITY_CLASS_RED (134) / LEAF (135) by the opponent's sprite (OBJ_EVENT_GFX_GREEN_NORMAL = 7);
+    -- the save's leftover value showed "Rocket Admin" on RR. pvp_class overrides if RR's tables differ.
+    local class = tonumber(cfg.pvp_class or "") or ((b.oppGfx == 7) and 135 or 134)
+    w8(sb2 + SB2_EREADER + 1, class)
     w8(sb2 + SB2_OPTIONS, c.backup.options | 0x02)
     -- go
     emu:write16(A.trainerA, 0)
@@ -143,8 +151,26 @@ function _RRMP_BATTLE_NEW(env)
   ------------------------------------------------------------------------------------------------
   -- decision rounds
 
-  local function turnSeed(c, id)
-    return ((c.b.seed or 0) ~ ((id * 0x9E3779B1) & 0xFFFFFFFF)) & 0xFFFFFFFF
+  -- random value for the next logic step, from where the battle logically is (not when)
+  local function logicSeed(c, roundId, main, instr, occ)
+    local h = 0x811C9DC5
+    for _, v in ipairs({ c.b.seed or 0, roundId, main, instr, occ }) do
+      for i = 0, 3 do h = ((h ~ ((v >> (8 * i)) & 0xFF)) * 0x01000193) & 0xFFFFFFFF end
+    end
+    return h
+  end
+
+  local function lockRng(c, main)
+    local instr = r32(A.scriptInstr)
+    local rid = c.roundId or 0
+    local key = rid .. ":" .. main .. ":" .. instr
+    if key ~= c.rngKey then
+      c.rngKey = key
+      if c.rngRound ~= rid then c.occ, c.rngRound = {}, rid end
+      c.occ[key] = (c.occ[key] or 0) + 1
+      c.rngOcc = c.occ[key]
+    end
+    if r32(A.execFlags) == 0 then w32(A.rng, logicSeed(c, rid, main, instr, c.rngOcc)) end
   end
 
   local function stateHash(c)
@@ -170,6 +196,7 @@ function _RRMP_BATTLE_NEW(env)
     local rd = { id = c.nextRound, kind = kind, askedLocal = askedLocal, askedRemote = askedRemote,
                  hash = stateHash(c) }
     c.nextRound = c.nextRound + 1
+    c.roundId = rd.id
     if not askedLocal then rd.decision = { k = "n" } end
     c.round = rd
     c.rounds[rd.id] = rd
@@ -241,7 +268,6 @@ function _RRMP_BATTLE_NEW(env)
           elseif remote.k ~= "ai" then writeRemoteReply(st1 == 1 and "action" or "case", remote) end
         end
         if main ~= MAIN_SELECT and c.prevMain == MAIN_SELECT then
-          w32(A.rng, turnSeed(c, rd.id))   -- SetActionsAndBattlersTurnOrder runs next frame
           c.round = nil
           c.clearReplyMark = true
         end
@@ -258,13 +284,13 @@ function _RRMP_BATTLE_NEW(env)
           end
         end
         if (not rd.askedLocal or rd.decision) and (not rd.askedRemote or rd.applied) then
-          w32(A.rng, turnSeed(c, rd.id))
           c.round = nil
           c.clearReplyMark = true
         end
       end
     end
     c.prevMain = main
+    if cfg.rng_lock ~= "0" then lockRng(c, main) end
 
     local outcome = r8(A.outcome)
     if outcome ~= 0 and c.winner == nil then

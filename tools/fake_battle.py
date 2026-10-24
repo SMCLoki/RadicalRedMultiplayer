@@ -8,8 +8,10 @@ client/rr_battle.lua. Follows pret/pokefirered battle_main.c where the engine de
   battler's gBattleControllerExecFlags bit is clear
 - controllers run after the main function each frame; the AI (battler 1) answers in the same frame with a
   random pick; the player (battler 0) answers from a queue of test inputs
-- RNG (gRngValue LCG) is advanced every frame while waiting for input, so the two clients' RNGs differ unless
-  the engine re-seeds; turn order ties, AI picks and damage rolls use it
+- RNG (gRngValue LCG): VBlankCB_Battle calls Random() every frame, and move animations run in the attacker's
+  controller (exec bit set, CONTROLLER_MOVEANIMATION) for a side-dependent number of frames with extra Random()
+  calls on the player side - the drift seen in real mGBA (run 5). Script logic (turn order, damage rolls) only
+  runs while gBattleControllerExecFlags == 0, as in RunBattleScriptCommands
 - faint -> CHOOSEPOKEMON to the fainted side outside the selection state; Cmd_switchhandleorder copies
   gBattleBufferB[b][1] when byte 0 is CHOSENMONRETURNVALUE, else uses gBattleStruct->monToSwitchIntoId
 - end: gBattleOutcome, flags cleared, callback2 = savedCallback, then back to CB2_Overworld
@@ -26,7 +28,7 @@ CHOSEN_ACTION, RNG, EPARTY, ECOUNT, PPARTY, PCOUNT = 0x02023D7C, 0x03005000, 0x0
 BS_PTR, BS_ADDR, SB1PTR, SB2PTR = 0x02023FE8, 0x02000010, 0x03005008, 0x0300500C
 CB_OVERWORLD, CB_INIT, CB_BATTLE = 0x080565B5, 0x0800FD9D, 0x08011101
 SEL, ORDER, RUN, END = 0x08014041, 0x080150A9, 0x080154A1, 0x08015A31
-CHOOSEACTION, CHOOSEMOVE, CHOOSEPOKEMON, TWO, CHOSENMON = 18, 20, 22, 33, 34
+CHOOSEACTION, CHOOSEMOVE, CHOOSEPOKEMON, TWO, CHOSENMON, MOVEANIMATION = 18, 20, 22, 33, 34, 14
 SB_SIZE = 0x1000
 
 
@@ -127,6 +129,7 @@ class FakeBattle:
         elif self.state == "battle":
             self.main()
             self.controllers()
+            self.rand()  # VBlankCB_Battle: "Change gRngSeed every vblank"
         elif self.state == "ending":
             self.timer -= 1
             if self.timer <= 0:
@@ -214,16 +217,20 @@ class FakeBattle:
         elif f == ORDER:
             self.order = self.turn_order()
             self.w(MAINF, 4, RUN)
-            self.timer = self.frames_per_action
+            self.anim = None
         elif f == RUN:
-            self.timer -= 1
-            if self.timer > 0:
-                return
+            if self.r(EXEC, 4) & 3:
+                return                      # script waits while the controllers animate
             if self.order:
-                self.do_action(self.order.pop(0))
-                self.timer = self.frames_per_action
+                act = self.order.pop(0)
+                self.do_action(act)
                 if self.r(OUTCOME, 1):
                     self.finish()
+                    return
+                # move animation, drawn on the attacker's side: longer, with particles, on the player side
+                b = act[1]
+                self.anim = {"b": b, "left": self.frames_per_action + (3 if b == 0 else 0)}
+                self.send(b, MOVEANIMATION)
                 return
             self.after_turn()
         elif f == 0x08000001:  # waiting for replacement choices (battle script openpartyscreen + switchhandleorder)
@@ -298,6 +305,15 @@ class FakeBattle:
     # -- controllers (run after the main function, same frame) -------------------
     def controllers(self):
         if self.state != "battle":
+            return
+        anim = getattr(self, "anim", None)
+        if anim and self.exec_bit(anim["b"]) and self.r(self.bufa(anim["b"]), 1) == MOVEANIMATION:
+            anim["left"] -= 1
+            if anim["b"] == 0:
+                self.rand()                 # particle positions
+            if anim["left"] <= 0:
+                self.set_exec(anim["b"], False)
+                self.anim = None
             return
         if self.exec_bit(0):
             self.player()

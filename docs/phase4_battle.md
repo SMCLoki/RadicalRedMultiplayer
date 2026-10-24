@@ -32,9 +32,14 @@ an ordinary single battle where the local player is battler 0 and the other play
   loop reads it: `{0x21, 0|2}` at state 1, `{0x21, 10, slot, target}` or `{34, index}` at state 2,
   `{34, index}` (+ gBattleStruct->monToSwitchIntoId[1], offset 0x5C) for replacements. Targets are mirrored
   (their battler 0 is our battler 1).
-- **RNG**: both sides write `seed XOR (round * 0x9E3779B1)` to gRngValue at the end of the frame in which the
-  main loop leaves the selection state (turn order is computed the next frame), and at the end of a
-  replacement round. Per-frame RNG use while waiting for input therefore doesn't matter.
+- **RNG** (fixed after real mGBA run 5): `VBlankCB_Battle` calls `Random()` every frame and animations drawn on
+  different sides take different numbers of frames (239 vs 240 for the same turn), so seeding once per turn
+  drifted within the turn. Now the engine keys the random value to the battle's *logical* position: at the end
+  of every frame in which gBattleControllerExecFlags == 0 (the gate in `RunBattleScriptCommands`, i.e. the next
+  frame may run battle logic) it writes `FNV(seed, round, gBattleMainFunc, gBattlescriptCurrInstr 0x02023D74,
+  occurrence of that position in this round)` to gRngValue. Every damage roll, accuracy check, crit and
+  secondary effect therefore reads the same value on both machines however long the animations took, while
+  animations themselves still get varying random numbers. `rng_lock=0` turns it off (for comparison).
 - **Hash**: FNV-1a over both active mons (species, HP, max HP, PP, stat stages, status1), side 0 first on both
   machines, sent with each round's choice; the server ends the battle with `desync` on mismatch.
 
@@ -46,7 +51,8 @@ everything is re-read through gSaveBlock1Ptr/gSaveBlock2Ptr. `client/rr_visuals.
 gMapHeader.events whenever the game leaves the overworld, for the same reason.
 
 **Tested** in `tests/test_battle.py` with `tools/fake_battle.py` (a model of the selection state machine,
-controllers, RNG, faints and battle exit built from the decomp): full 2v2 battle with a faint replacement -
+controllers, VBlank Random(), side-dependent animation lengths, faints and battle exit built from the decomp; with
+`rng_lock=0` it reproduces the run-5 desync, with the lock the same battle stays in sync): full 2v2 battle with a faint replacement -
 both games log the identical (mirrored) battle; switching on both sides; forfeit mid-battle ends both games;
 a speed tie is caught as a desync; party/money/option/e-reader slot restored and back on the map.
 
@@ -55,6 +61,11 @@ a speed tie is caught as a desync; party/money/option/e-reader slot restored and
   ties, some end-of-turn ordering - comes out differently on the two machines. The hash check turns that into a
   clean `desync` ending, not silent divergence. The real fix is Option A below (link battle mode).
 - Items are blocked by the EREADER flag; "Run" shows the game's can't-escape message.
+- The opponent's name shows at most 5 characters (`CopyEReaderTrainerName5`). Class = FACILITY_CLASS_RED (134) or
+  LEAF (135) by their sprite; set `pvp_class=<n>` if RR's tables show something else.
+- RNG lock assumption: battle logic only consumes random numbers in frames that start with exec flags 0. A main
+  function that is not gated and uses Random() while animations run would still drift; `client/battle_debug.lua`
+  logs will show it.
 - No battle intro transition or battle music (map music keeps playing).
 - Abilities/items that make the AI controller or the game ask extra questions (e.g. Shift prompt) are untested.
 

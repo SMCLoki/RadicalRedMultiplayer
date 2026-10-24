@@ -199,3 +199,19 @@ Problems found:
 3. Not tested yet: switching, a faint/replacement, `mp.forfeit()`, a battle reaching a winner (none lasted long enough).
 
 Tools: `client/battle_debug.lua` (state log per battle-loop step, file per window via `PILOT_FILE` tag).
+
+## 2026-10-24 - cloud: fix for the run-5 RNG drift + opponent class
+- Root cause confirmed in pokefirered: `VBlankCB_Battle` calls `Random()` every frame ("Change gRngSeed every
+  vblank"), so any difference in frame counts (animations drawn on the other side: 239 vs 240 frames) shifts every
+  later roll in the turn.
+- Fix (`client/rr_battle.lua`): gRngValue is keyed to the battle's logical position instead of time. At the end of
+  each frame where gBattleControllerExecFlags == 0 (battle script may run next frame) it is set from
+  (seed, round, gBattleMainFunc, gBattlescriptCurrInstr, occurrence count). Replaces the per-turn reseed.
+- `tools/fake_battle.py` now models VBlank Random(), move animations in the attacker's controller with
+  side-dependent length and extra Random() calls, and script logic gated on exec flags. New control test: with
+  `rng_lock=0` the battle desyncs exactly like run 5; with the lock all sync tests pass (5/5 tests, 3 runs).
+- Intro class: e-reader trainer class is now written (FACILITY_CLASS_RED 134 / LEAF 135 from the opponent's
+  sprite) instead of the save's leftover value ("Rocket Admin"). The name is limited to 5 characters by the game.
+- To verify in real mGBA: run `client/battle_debug.lua` in both windows again; rng should now match at every
+  gBattleMainFunc change, and battles should reach a winner without `desync` (except speed ties).
+

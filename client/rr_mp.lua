@@ -876,6 +876,8 @@ local function startBattle(m, resumed)
   b.opp, b.party, b.rules = m.opp, m.party, m.rules
   if resumed and m.have_action then b.sentTurn = m.turn end
   b.resumed = resumed
+  local oppPeer = m.opp and S.peers[m.opp.id]
+  b.oppGfx = oppPeer and oppPeer.state and oppPeer.state.g
   if not resumed then backupParty() end
   local ok, why = M.engine.begin(b)
   b.engineRunning = ok
