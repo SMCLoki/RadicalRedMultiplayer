@@ -497,9 +497,16 @@ local function connect()
   if net.sock then return end
   S.status, S.statusMsg = "connecting", cfg.host .. ":" .. cfg.port
   S.dirty = true
+  local t0 = os.time()
   local ok, sock, err = pcall(socket.connect, cfg.host, tonumber(cfg.port) or 8765)
   if not ok or not sock then
-    drop("connect failed: " .. tostring(ok and err or sock))
+    local why = tostring(ok and err or sock)
+    if os.time() - t0 >= 3 then
+      -- connect() blocks the emulator; an unreachable host can freeze it for ~20 s per try, so stop retrying
+      drop("server unreachable (" .. why .. "). Check host in mp_config.txt, then type mp.reload()", false)
+    else
+      drop("connect failed: " .. why)
+    end
     return
   end
   net.sock, net.inbuf, net.outbuf = sock, "", ""

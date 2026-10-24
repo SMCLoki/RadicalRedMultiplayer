@@ -221,6 +221,26 @@ class ClientTest(unittest.TestCase):
         self.srv = ServerThread(os.path.join(self.tmp, "srvdata"), port=port)
         self.until(lambda: a.status == "online", gbas=[a], frames=2000)
 
+    def test_unreachable_host_stops_retrying(self):
+        os.makedirs(os.path.join(self.tmp, "U"), exist_ok=True)
+        # the script connects while loading, so make the very first attempt slow
+        import mgba_mock
+        orig = mgba_mock._Py.connect
+
+        def slow(py, host, port):
+            time.sleep(3.2)
+            return None, b"timeout"
+        mgba_mock._Py.connect = slow
+        try:
+            g = self.gba("U")
+        finally:
+            mgba_mock._Py.connect = orig
+        self.assertEqual(g.status, "stopped")
+        self.step(700, [g])
+        self.assertEqual(g.status, "stopped")  # no further blocking attempts
+        g.call("reload")
+        self.until(lambda: g.status == "online", gbas=[g])
+
     def test_battle_plumbing_with_manual_actions(self):
         a, b = self.setup_trade()
         a.call("battle", "Blue")

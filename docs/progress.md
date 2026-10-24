@@ -13,11 +13,13 @@ See `docs/ram_map.md`. Party structs unencrypted on RR.
 - `client/rr_mp.lua`: JSON lib, event-driven socket reads, outbound buffer with partial-send handling,
   6 s dead-link detection, reconnect backoff 1→10 s, no auto-retry on fatal errors, per-window profiles,
   "RR Online" text buffer + `work/mp_status_<profile>.txt`, console commands (`mp.help()`).
+  `socket.connect` blocks the emulator; if one attempt takes ≥3 s (unreachable host) the client stops
+  auto-retrying and asks for `mp.reload()` instead of freezing the game every 10 s.
 - Checked against mGBA 0.10 source (cloud session): socket callbacks are called as `cb(socket, ...)`;
   would-block is reported as `"temporary failure"`; sockets are auto-polled every frame after `connect`;
   `emu:checksum()` defaults to CRC32 (4 bytes big-endian); `"shutdown"` callback exists; **no `--script`
   command-line option in 0.10** (load the script via the Scripting window; mGBA remembers recent scripts).
-- 12 end-to-end tests in `tests/test_client.py` run the real Lua script against the real server.
+- 13 end-to-end tests in `tests/test_client.py` run the real Lua script against the real server.
 - Real-emulator demo: TODO → `docs/local_checklist.md` §1.
 
 ## Phase 2 — Presence: TESTED (data path), rendering TODO
