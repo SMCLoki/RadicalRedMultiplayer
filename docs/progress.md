@@ -139,3 +139,15 @@ Two windows in Oak's lab (map 4.3), autopilot in both (`PILOT_FILE="pilot2.txt"`
   long enough for a server `timeout`; it reconnects by itself.
 - Not tested yet: running (pilot holds one key at a time), ledges, battle-and-return, `puppet_gfx=remote`,
   real NPCs unaffected over a long session.
+
+## 2026-10-24 - real mGBA run 4 (local): running, battle-and-return
+
+Window 1 from `overworld_lab.ss`, window 2 from `rival_battle_menu.ss` (mid rival battle), pilot combos from 0796d7e.
+`pilot.lua` now replaces an already-loaded copy on reload (`_PILOT_CB`), so reloading never runs two autopilots.
+
+- **Battle-and-return works:** while window 2 fought the rival, window 1 kept drawing Player2 on the tile where the
+  battle started, panel "(in battle)"; window 2's panel said "waiting for the overworld". After the battle window 2
+  drew Player1 after one step, and window 1's copy of Player2 walked again normally.
+- **Running works:** `HOLD B+LEFT 40` moved Player1 5 tiles (x9 -> x4, running speed); window 2's copy ended on the
+  same tile.
+- Not tested: ledges (none indoors; needs Route 1), `puppet_gfx=remote` (needs a Leaf save; both test saves are Red).

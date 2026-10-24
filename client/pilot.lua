@@ -39,7 +39,9 @@ local function finish()
   local f = io.open(DIR .. (PILOT_FILE or "pilot.txt"):gsub("%.txt$", "") .. "_done.txt", "w"); if f then f:write(lastId); f:close() end
 end
 
-callbacks:add("frame", function()
+-- Reloading the script replaces the previous instance instead of running two autopilots.
+if _PILOT_CB then pcall(callbacks.remove, callbacks, _PILOT_CB) end
+_PILOT_CB = callbacks:add("frame", function()
   frame = frame + 1
   if frame % 20 == 0 and #queue == 0 and not cur then load() end
   if not cur then
