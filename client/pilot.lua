@@ -2,6 +2,7 @@
 -- File format: first line "id <number>" (re-run when it changes), then one command per line:
 --   HOLD <KEY> <frames>   WAIT <frames>   MASH <KEY> <frames>   SAVE <slot>   LOAD <slot>
 --   LOADSTATE <file under work/>   DUMP <name> (EWRAM+IWRAM -> work/dumps/<name>_ew.bin/_iw.bin)
+--   EXEC <one line of Lua>   (result appended to work/<pilot>_exec.txt)
 --   CBLOG on|off (log gMain callbacks, battle flags and candidate battle vars on change -> work/cb_log.txt)
 -- Inputs after LOADSTATE run on exact frames, so two runs that differ in one input can be diffed byte-for-byte.
 -- KEY: A B START SELECT UP DOWN LEFT RIGHT L R, or several joined by + (HOLD B+LEFT 64 = run left).  Writes work/pilot_done.txt "<id>" when finished.
@@ -32,8 +33,10 @@ local function load()
   if not id or id == lastId then return end
   lastId, queue, cur = id, {}, nil
   for line in text:gmatch("[^\r\n]+") do
+    if line:match("^EXEC ") then queue[#queue + 1] = { op = "EXEC", code = line:sub(6), keys = 0 } goto continue end
     local op, a, b = line:match("^(%u+)%s*(%S*)%s*(%S*)")
     if op and op ~= "ID" then queue[#queue + 1] = { op = op, a = a, b = b, keys = (op == "HOLD" or op == "MASH") and keyMask(a) or 0 } end
+    ::continue::
   end
   console:log("pilot: loaded id " .. id .. " (" .. #queue .. " cmds)")
 end
@@ -83,6 +86,14 @@ _PILOT_CB = callbacks:add("frame", function()
       elseif cur.op == "LOAD" then emu:loadStateSlot(tonumber(cur.a), 29); cur = nil
       elseif cur.op == "LOADSTATE" then emu:loadStateFile(DIR .. cur.a, 29); emu:setKeys(0); cbFrame = 0; cur = nil
       elseif cur.op == "DUMP" then dump(cur.a); cur = nil
+      elseif cur.op == "EXEC" then
+        -- run one line of Lua (e.g. mp.battle("Player2")) without typing into the scripting console
+        local fn, err = load(cur.code)
+        local ok, res = false, err
+        if fn then ok, res = pcall(fn) end
+        local f = io.open(DIR .. (PILOT_FILE or "pilot.txt"):gsub("%.txt$", "") .. "_exec.txt", "ab")
+        if f then f:write(tostring(ok), " ", tostring(res), string.char(10)); f:close() end
+        cur = nil
       elseif cur.op == "CBLOG" then cblog, cbLast, cbFrame = (cur.a == "on"), nil, 0; cur = nil end
     elseif lastId and #queue == 0 then
       if doneId ~= lastId then emu:setKeys(0); finish(); doneId = lastId end

@@ -465,3 +465,25 @@ Talk-to-player menu (section 2):
   (8C233F8A); the client stayed online through the reset and still draws the other player.
 - Earlier runs cover: battle-and-return on the map (run 4), server restart -> both reconnect (run 1).
 Beta checklist sections 1-3 pass on one PC. Open: section 4 (two PCs via Tailscale), Z-Move/Mega pressed by a player.
+
+## 2026-10-24 - real mGBA run 12 (local): lag test, Z-Move prep, soft-reset talk bug
+
+- **Lag test (stand-in for two PCs):** `tools/lag_proxy.py` between clients and server (server moved to port 8766,
+  proxy on 8765, +150 ms +-50 ms jitter each way). Both clients reconnected through it on their own (panel RTT
+  283-333 ms). **Battle 21 through the proxy: 7 turns, natural winner, no desync**, with roles swapped (Player2
+  challenged, window 2 = side 0) and an exact speed tie every turn. Started from the talk menu (COLOSSEUM -> the other
+  window talks -> "wants to battle! Accept?" -> Yes).
+- **Menu trade under lag: race found.** Both players opened TRADE CENTER before either game had seen the other's
+  offer (~300 ms RTT), so they offered to each other at once; the server refused one ("busy") and both ended cancelled.
+  No Pokémon moved. Afterwards window 2's talk box kept showing "Waiting for Player1... Cancel your request?" although
+  neither game shows a pending trade/battle - not diagnosed yet (needs console access, see below).
+- **Soft-reset talk bug fixed (rr_visuals.lua):** after `emu:reset()` + loading the save, talking to the other player did
+  nothing in that window. The talk script (and puppet templates) live in SaveBlock1 template slots; loading the save
+  overwrites them at the same address, but the client only rewrote them when its cached copy changed. Now it compares
+  with RAM. Not yet re-tested in the emulator (the client must be reloaded in that window).
+- **Z-Move prep:** Normalium Z is item 580 (item table at 0x013C0000, 44-byte entries; Oran Berry = 139 matches the
+  starter's held item). Player-pressed Z-Move not run yet.
+- pilot.lua: new `EXEC <lua>` command (runs one line of Lua, result in work/<pilot>_exec.txt) so console commands no
+  longer need typing into the Scripting window. Not loaded in the emulators yet.
+- Blocker: a Windows text-input panel (textinputhost.exe) stays in front and blocks clicks into mGBA; access was
+  declined, so it has to be closed by hand before the remaining reloads.

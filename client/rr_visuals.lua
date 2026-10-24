@@ -112,16 +112,18 @@ function _RRMP_VISUALS_NEW(env)
     local x, y, g, e = FAR, FAR, 0, 0
     if p then x, y, g, e = p.tx, p.ty, p.gfx, p.elev end
     local key = string.format("%d:%d,%d,%d,%d", sb1, x, y, g, e)
-    if tplCache[idx] == key then return end
-    tplCache[idx] = key
     local a = sb1 + SB1_TEMPLATES + idx * TPL
+    local scr = (p and env.buildScript) and scriptAddr(sb1) or 0
+    -- the cache alone can be stale after a soft reset reloads the save into the same addresses: check RAM too
+    if tplCache[idx] == key and emu:read32(a + 0x10) == scr and emu:read16(a + 4) == (x & 0xFFFF) then return end
+    tplCache[idx] = key
     emu:write32(a, (LOCALID_BASE + k) | (g << 8))         -- localId, graphicsId, kind 0 (normal), pad
     emu:write16(a + 4, x & 0xFFFF)
     emu:write16(a + 6, y & 0xFFFF)
     emu:write32(a + 8, e & 0x0F)                           -- elevation, movementType NONE, no range
     emu:write32(a + 0x0C, 0)                               -- trainerType, trainerRange
     -- script: the shared talk-to-player script (or NULL = talking does nothing)
-    emu:write32(a + 0x10, (p and env.buildScript) and scriptAddr(sb1) or 0)
+    emu:write32(a + 0x10, scr)
     emu:write32(a + 0x14, 0)                               -- flagId 0: never hidden
   end
 
@@ -380,7 +382,11 @@ function _RRMP_VISUALS_NEW(env)
         if peer then
           local addr = scriptAddr(sb1)
           local bytes = env.buildScript(peer, addr)
-          if bytes and #bytes <= SCRIPT_MAX and (bytes ~= V.scriptBytes or addr ~= V.scriptAt) then
+          -- compare with RAM, not only the last write: a soft reset + loading the save overwrites this area with
+          -- the saved bytes at the same address, and the cached copy would then never be rewritten (real mGBA
+          -- run 12: talking to a player did nothing after emu:reset()).
+          if bytes and #bytes <= SCRIPT_MAX and (bytes ~= V.scriptBytes or addr ~= V.scriptAt
+              or emu:readRange(addr, #bytes) ~= bytes) then
             for i = 1, #bytes do emu:write8(addr + i - 1, bytes:byte(i)) end
             V.scriptBytes, V.scriptAt, V.scriptPeer = bytes, addr, peer
           end
