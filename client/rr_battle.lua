@@ -30,7 +30,10 @@ function _RRMP_BATTLE_NEW(env)
   local A = {
     gMain = 0x030030F0, battleFlags = 0x02022B4C, mainFunc = 0x03004F84, execFlags = 0x02023BC8,
     bufA = 0x02022BC4, bufB = 0x020233C4, mons = 0x02023BE4, comm = 0x02023E82, outcome = 0x02023E8A,
-    chosenAction = 0x02023D7C, rng = 0x03005000, enemyParty = 0x0202402C, enemyCount = 0x0202402A,
+    chosenAction = 0x02023D7C, rng = 0x03005000,
+    -- RR's battle code (crit, damage roll) draws from a second LCG, x*1103515245+12345, one step per call and never
+    -- per frame (found in real mGBA run 10: gRngValue moved only by the VBlank step during adjustnormaldamage)
+    rng2 = tonumber(cfg.rng2_addr or "") or 0x020386D0, enemyParty = 0x0202402C, enemyCount = 0x0202402A,
     trainerA = 0x020386AE, sb1Ptr = 0x03005008, sb2Ptr = 0x0300500C, objEvents = 0x02036E38,
     battleStructPtr = 0x02023FE8, scriptInstr = 0x02023D74, controllerFuncs = 0x03004FE0,
   }
@@ -129,6 +132,7 @@ function _RRMP_BATTLE_NEW(env)
     emu:write16(A.trainerA, 0)
     w8(A.outcome, 0)
     w32(A.rng, b.seed or 0)
+    if A.rng2 ~= 0 then w32(A.rng2, (b.seed or 0) ~ 0x5EED2222) end
     w32(A.battleFlags, FLAGS)
     w32(A.gMain + 8, CB_RETURN)
     w32(A.gMain + 4, CB_INIT_BATTLE)
@@ -170,7 +174,11 @@ function _RRMP_BATTLE_NEW(env)
       c.occ[key] = (c.occ[key] or 0) + 1
       c.rngOcc = c.occ[key]
     end
-    if r32(A.execFlags) == 0 then w32(A.rng, logicSeed(c, rid, main, instr, c.rngOcc)) end
+    if r32(A.execFlags) == 0 then
+      local seed = logicSeed(c, rid, main, instr, c.rngOcc)
+      w32(A.rng, seed)
+      if A.rng2 ~= 0 then w32(A.rng2, seed ~ 0x5EED2222) end
+    end
   end
 
   local function stateHash(c)
@@ -197,6 +205,12 @@ function _RRMP_BATTLE_NEW(env)
                  hash = stateHash(c) }
     c.nextRound = c.nextRound + 1
     c.roundId = rd.id
+    if kind == "turn" then
+      -- bytes 4-7 of battler 0's reply are the Mega/Ultra Burst/Z-Move/Dynamax flags. They are not cleared by
+      -- the game and hold leftovers from battle setup (98 00 0A 00 seen in real mGBA run 10), which were sent to
+      -- the other game as "use Z-Move". Clear them so only a fresh EmitMoveChosen can set them.
+      w32(A.bufB + 4, 0)
+    end
     if not askedLocal then rd.decision = { k = "n" } end
     c.round = rd
     c.rounds[rd.id] = rd
@@ -333,6 +347,8 @@ function _RRMP_BATTLE_NEW(env)
         if not rd.decision and (st0 == 3 or st0 == 4) then
           local act = r8(A.chosenAction)
           if act == 2 then rd.decision = { k = "s", i = r8(A.bufB + 1) }
+          elseif r8(A.bufB) ~= CMD_TWO or r8(A.bufB + 1) ~= 10 then
+            -- the move reply (0x21, 10, slot, target, gimmicks) isn't in the buffer yet: wait, don't read stale bytes
           else
             -- g: the local player's Mega / Ultra Burst / Z-Move / Dynamax choice (CFRU reply bytes 4-7)
             local g = 0

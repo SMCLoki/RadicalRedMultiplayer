@@ -49,7 +49,8 @@ end
 -- gBattleMainFunc (0x03004F84) and gBattleOutcome (0x02023E8A), both verified on RR.
 local CBLOG = { { 0x030030F0, 4 }, { 0x030030F4, 4 }, { 0x030030F8, 4 }, { 0x02022B4C, 4 }, { 0x03004F84, 4 }, { 0x02023E8A, 1 },
   -- verified on RR (docs/ram_map.md): gChosenActionByBattler[0..3], gChosenMoveByBattler[0..1], gBattleBufferB[0] and [1]
-  { 0x02023D7C, 4 }, { 0x02023DC4, 4 }, { 0x020233C4, 4 }, { 0x020235C4, 4 } }
+  { 0x02023D7C, 4 }, { 0x02023DC4, 4 }, { 0x020233C4, 4 }, { 0x020235C4, 4 },
+  { 0x02023D74, 4 }, { 0x02023D50, 4 }, { 0x03005000, 4 } }  -- gBattlescriptCurrInstr, gBattleMoveDamage, gRngValue
 local cblog, cbLast, cbFrame = false, nil, 0
 local function cbTick()
   cbFrame = cbFrame + 1

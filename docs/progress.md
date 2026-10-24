@@ -408,3 +408,24 @@ hand while the local player is still choosing, the reply is written early and th
 the Z-Move (or the flag is cleared before CFRU sets it). Clear the flag on every path, at the moment battler 1's
 reply is consumed (exec bit 2 -> 0), not when the remote decision arrives.
 Section 2 (talk-to-player menu) not tested yet.
+
+## 2026-10-24 - real mGBA run 10 (local): FIRST FULLY SYNCED PvP BATTLE
+
+Two engine fixes made locally (client/rr_battle.lua), found in the real game:
+1. **Stale gimmick bytes.** gBattleBufferB[0] bytes 4-7 (Mega/Ultra Burst/Z-Move/Dynamax) are not cleared by the game
+   and held `98 00 0A 00` from battle setup at turn 1 (seen in both windows). The local decision read them as "Z-Move"
+   and sent it to the other game, so that game's opponent fired a Z-Move. Fix: zero bytes 4-7 at each turn round start
+   and only take a move decision once the buffer holds a real move reply (0x21, 10, ...).
+2. **Second RNG.** Radical Red's battle code (critical hits, the 85-100% damage roll in adjustnormaldamage) does not
+   use gRngValue: in a deterministic replay gRngValue moved only by the VBlank step on the frame adjustnormaldamage ran.
+   Frame-by-frame dumps found **0x020386D0**, an LCG x*1103515245+12345 that advances once per draw and never per
+   frame - it changed exactly on the roll (6CBE8B13 -> BF333150, 1 step) and nowhere else. It carried over from
+   earlier play, so the two games always rolled differently. Fix: seed it at battle start and at every logical step
+   alongside gRngValue (`rng2_addr` config override). battle_trace.lua now logs it as `r2=`.
+
+Battle 14 (traces: docs/evidence_btrace_run10_b14_window1/2.txt): **18 turns, no desync, natural winner**
+(server: winner=1 reason=normal). Included a faint + replacement on BOTH sides, both handled in sync. No Z-Move
+(0x0900188A: 0 lines in both). Afterwards: "you lose (normal)" / "YOU WIN (normal)", both back on the map, party,
+money and options restored, puppets drawn.
+compare_traces.py still prints false "differences" around the faint/replacement steps (different script paths per
+side for the replacement prompt) although the per-turn hashes matched all 18 turns - the tool needs to align those.

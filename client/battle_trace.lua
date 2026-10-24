@@ -31,10 +31,10 @@ _BTRACE_CB = callbacks:add("frame", function()
   local key = main .. ":" .. instr
   if key == lastKey and not lag then return end
   lastKey = key
-  local line = string.format("%d %s main=%08X instr=%08X exec=%08X rng=%08X dmg=%d crit=%d atk=%d tgt=%d hp0=%d hp1=%d f1=%08X",
+  local line = string.format("%d %s main=%08X instr=%08X exec=%08X rng=%08X dmg=%d crit=%d atk=%d tgt=%d hp0=%d hp1=%d f1=%08X r2=%08X",
     n, lag and "LAG" or "ok", main, instr, exec, emu:read32(0x03005000), emu:read32(0x02023D50),
     emu:read8(0x02023D71), emu:read8(0x02023D6B), emu:read8(0x02023D6C),
-    emu:read16(MONS + 0x28), emu:read16(MONS + BMON + 0x28), emu:read32(0x03004FE4))
+    emu:read16(MONS + 0x28), emu:read16(MONS + BMON + 0x28), emu:read32(0x03004FE4), emu:read32(0x020386D0))
   local fh = io.open(OUT, "ab"); if fh then fh:write(line, string.char(10)); fh:close() end
 end)
 console:log("battle_trace.lua: logging to " .. OUT)
