@@ -456,3 +456,12 @@ Talk-to-player menu (section 2):
   the clone case: both sides "TRADE DONE".
 - COLOSSEUM: window 2 talks -> "Player1 wants to battle! Accept the challenge?" -> Yes -> battle starts in both.
 - Note: mashing A while facing another player opens the menu repeatedly (cancelled offers, no trade committed).
+
+### run 11 continued: section 2.4 and section 3
+- Talk while a request is pending: "Waiting for Player2... Cancel your request?" -> Yes -> both games "battle over: no
+  winner (declined)". EXIT closes the menu, nothing sent.
+- Both players walked out of the lab into Pallet Town (warp): each game draws the other there.
+- Saved in-game after the menu trade, `emu:reset()`, loaded the save: party slot 1 is the Pokémon received in the trade
+  (8C233F8A); the client stayed online through the reset and still draws the other player.
+- Earlier runs cover: battle-and-return on the map (run 4), server restart -> both reconnect (run 1).
+Beta checklist sections 1-3 pass on one PC. Open: section 4 (two PCs via Tailscale), Z-Move/Mega pressed by a player.

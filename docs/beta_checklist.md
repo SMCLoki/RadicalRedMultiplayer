@@ -1,5 +1,8 @@
 # Beta checklist (one real-mGBA session, two windows)
 
+> Result 2026-10-24 (local session, runs 10-11 in progress.md): sections 1-3 PASS on one PC. Section 4 (two PCs) not
+> run yet. Section 1.4 (Z button) not testable with the test saves.
+
 Goal: confirm the beta works end to end. Branch `claude/lucid-tesla-es8owg`, newest commit. Clear `work/btrace_*.txt`
 between battles (`compare_traces.py` reads the first battle in each file). Record results in `docs/progress.md`.
 
@@ -17,7 +20,7 @@ between battles (`compare_traces.py` reads the first battle in each file). Recor
    difference" and "RNG lock held". Paste the full output into progress.md either way.
 4. Press the Z button in one window on a move with a Z-Crystal holder (if available): both games should show
    the Z-Move.
-5. 3 more battles. Desync only allowed on an exact speed tie (known limit).
+5. 3 more battles. (Speed ties are handled since run 11.)
 
 ## 2. Talk-to-player menu (9f0930f)
 1. Walk next to the other player's character and face it; press A. Expected: "<name>: Let's link up! Trade or
@@ -27,7 +30,7 @@ between battles (`compare_traces.py` reads the first battle in each file). Recor
    Trade?" -> YES. Both parties swap; save in both.
 3. COLOSSEUM -> other window talks to you -> "wants to battle! Accept?" -> YES -> battle starts in both.
 4. Talk while waiting -> "Cancel your request?" -> YES cancels. EXIT does nothing.
-5. If the menu shows other words or the party screen doesn't open, RR changed list 39 or special 160: note what
+5. If the menu shows other words or the party screen doesn't open, RR changed list 39 or special 159 (160 in older builds hung): note what
    appears; set `menu_list=` / `special_choose_party=` in `work/mp_config.txt` to try others.
 
 ## 3. Everyday play

@@ -62,10 +62,16 @@ controllers, VBlank Random(), side-dependent animation lengths, faints and battl
 both games log the identical (mirrored) battle; switching on both sides; forfeit mid-battle ends both games;
 a speed tie is caught as a desync; party/money/option/e-reader slot restored and back on the map.
 
+**Verified in real mGBA (runs 10-11, 2026-10-24):** 7 PvP battles to a natural winner with no desync (faints and
+replacements on both sides, a voluntary switch, a 1-vs-2 team, an exact speed tie every turn). Fixes found in the real
+game: RR rolls crits/damage with a second LCG at 0x020386D0 (seeded with gRngValue); stale gimmick bytes in
+gBattleBufferB[0] were sent as a Z-Move; speed ties use a side-flipped first random bit on the turn-order step.
+
 **Known limits**
-- Mirrored simulation: each game has its own player as battler 0. Anything decided by battler index - speed
-  ties, some end-of-turn ordering - comes out differently on the two machines. The hash check turns that into a
-  clean `desync` ending, not silent divergence. The real fix is Option A below (link battle mode).
+- Mirrored simulation: each game has its own player as battler 0. Speed ties are handled (turn-order step); other
+  battler-index-dependent ordering (e.g. some end-of-turn effects with both sides active) is not proven yet. The hash
+  check turns any remaining case into a clean `desync` ending, not silent divergence. Option A (link mode) remains the
+  structural alternative.
 - Items are blocked by the EREADER flag; "Run" shows the game's can't-escape message.
 - The opponent's name shows at most 5 characters (`CopyEReaderTrainerName5`). Class = FACILITY_CLASS_RED (134) or
   LEAF (135) by their sprite; set `pvp_class=<n>` if RR's tables show something else.
