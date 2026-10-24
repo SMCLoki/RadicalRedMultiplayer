@@ -69,3 +69,15 @@ See `docs/ram_map.md`. Party structs unencrypted on RR.
   map/x/y and `<< HERE`; killing and restarting the server -> both clients back online within ~3 s.
 - Not yet checked: `mp.*` console commands, game id in server log, pause-timeout, script reload, walking presence,
   trading, battles.
+
+## 2026-10-24 - cloud follow-up to the first real run
+- `tools/mgba_mock.py` read the client through the script's return value; after `return M` was removed it got
+  nil, so the 12 lupa end-to-end tests could not run (they are skipped on the Windows PC without lupa). The mock
+  now reads `_RRMP_INSTANCE` and, like real mGBA, rejects any script that returns values.
+- That surfaced a bug from the trace patch: `_RRMP_TRACE("handled " .. msg.t)` ran after `handlers.state` had
+  cleared `msg.t`, raising an error on every presence message (console error spam and the rest of that network
+  read delayed until the next one). Fixed by reading `msg.t` before calling the handler. 14/14 client tests and
+  34/34 server tests pass.
+- Recommendation for the local session: `pip install lupa` (with the user's OK) so `tests/test_client.py`
+  actually runs on Windows instead of skipping.
+

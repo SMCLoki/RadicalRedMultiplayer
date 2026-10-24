@@ -482,12 +482,13 @@ local function processLine(line)
     event("bad message from server: " .. tostring(err))
     return
   end
-  _RRMP_TRACE("line " .. msg.t)
-  local h = handlers[msg.t]
+  local t = msg.t  -- handlers may modify msg (handlers.state clears msg.t)
+  _RRMP_TRACE("line " .. t)
+  local h = handlers[t]
   if h then
     local ok, e = pcall(h, msg)
-    if not ok then event("handler " .. msg.t .. " failed: " .. tostring(e)) end
-    _RRMP_TRACE("handled " .. msg.t)
+    if not ok then event("handler " .. t .. " failed: " .. tostring(e)) end
+    _RRMP_TRACE("handled " .. t)
   end
 end
 

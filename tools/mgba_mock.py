@@ -5,7 +5,8 @@ Only the API surface rr_mp.lua touches is emulated: emu memory access, console +
 frame/shutdown callbacks and the socket API (socket.connect, :add("received"), :send, :receive,
 :close). Socket semantics follow what Phase 0 observed on the real emulator: connect blocks,
 "received" fires while data (or EOF) is pending, and after the peer closes :receive returns
-nil, "disconnected" on every call. Everything here is a model of mGBA, not mGBA itself:
+nil, "disconnected" on every call. Loading mirrors mGBA's quirk of leaving script return values on
+the Lua stack (fatal in the real emulator), so a script that returns anything is rejected. Everything here is a model of mGBA, not mGBA itself:
 behaviour verified only in this mock must still be checked in the real emulator.
 """
 from __future__ import annotations
@@ -189,7 +190,12 @@ class FakeGBA:
             for k, v in config.items():
                 t[k.encode()] = str(v).encode()
             g.RRMP_CONFIG = t
-        self.M = g.dofile(script.encode())
+        # mGBA 0.10 runs the file with lua_pcall(..., LUA_MULTRET) and never pops the results; anything a
+        # script returns stays on the stack and aborts the emulator on the next callback. Fail loudly here.
+        nret = self.lua.eval(b"function(p) local f = assert(loadfile(p)); return select('#', f()) end")(script.encode())
+        if nret:
+            raise RuntimeError(f"{script} returned {nret} value(s); real mGBA 0.10 crashes on this")
+        self.M = g._RRMP_INSTANCE
         self.mp = g.mp
 
     # -- driving -----------------------------------------------------------
