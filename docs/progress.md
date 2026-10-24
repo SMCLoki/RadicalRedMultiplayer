@@ -151,3 +151,18 @@ Window 1 from `overworld_lab.ss`, window 2 from `rival_battle_menu.ss` (mid riva
 - **Running works:** `HOLD B+LEFT 40` moved Player1 5 tiles (x9 -> x4, running speed); window 2's copy ended on the
   same tile.
 - Not tested: ledges (none indoors; needs Route 1), `puppet_gfx=remote` (needs a Leaf save; both test saves are Red).
+
+## 2026-10-24 - cloud: PvP battle engine
+- New `client/rr_battle.lua` (auto-loaded): starts an EREADER-trainer battle against the other player's team
+  from the overworld, runs lockstep "decision rounds" (turns and faint replacements), holds the AI battler via
+  gBattleControllerExecFlags until the remote choice arrives and overwrites its gBattleBufferB reply, re-seeds
+  gRngValue at matching points, hashes state per round, ends on gBattleOutcome or a server result, restores
+  party/money/battle style/e-reader slot back on the map. Details and verification steps: docs/phase4_battle.md.
+- Built on the local session's verified battle addresses plus pokefirered for gBattleControllerExecFlags,
+  gBattleBufferA, gTrainerBattleOpponent_A, CB2_ReturnToField, controller command ids and BattleStruct offsets.
+- `client/rr_visuals.lua`: restores gMapHeader.events as soon as the game leaves the overworld (save blocks move
+  at battle start and field init) and uses the verified CB2_Overworld instead of learning it.
+- `tools/fake_battle.py` + `tests/test_battle.py` (4 tests, all pass 5/5 runs): synced 2v2 with replacement,
+  switching, forfeit, speed-tie desync detection, full restore. Model of the engine, not the ROM.
+- Not run in the real emulator yet.
+

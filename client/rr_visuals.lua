@@ -266,17 +266,14 @@ function _RRMP_VISUALS_NEW(env)
   ------------------------------------------------------------------------------------------------
   -- per-frame entry point
 
-  local lastPlayerX, lastPlayerY, overworldCb2, lastValidate = nil, nil, nil, -9999
+  -- CB2_Overworld, verified on RR (docs/ram_map.md "gMain callbacks"); config cb_overworld overrides
+  local overworldCb2, lastValidate = tonumber(env.cbOverworld or "") or 0x080565B5, -9999
 
   function V.inOverworld()
     if emu:read32(A.battleFlags) ~= 0 then return false end
     local o = A.gObjectEvents
     if emu:read32(o) & (F_ACTIVE | F_PLAYER) ~= (F_ACTIVE | F_PLAYER) then return false end
-    local cb2 = emu:read32(A.gMain + 4)
-    local x, y = emu:read16(o + 0x10), emu:read16(o + 0x12)
-    if lastPlayerX and (x ~= lastPlayerX or y ~= lastPlayerY) then overworldCb2 = cb2 end  -- learn CB2_Overworld
-    lastPlayerX, lastPlayerY = x, y
-    return overworldCb2 == nil or cb2 == overworldCb2
+    return emu:read32(A.gMain + 4) == overworldCb2
   end
 
   local function myLocation(sb1)
@@ -293,7 +290,12 @@ function _RRMP_VISUALS_NEW(env)
   function V.tick(frame)
     if not V.enabled then V.reason = "off (mp.visuals(true) to enable)"; return end
     local sb1 = emu:read32(A.sb1Ptr)
-    if not isEwram(sb1) or not V.inOverworld() then return end
+    if not isEwram(sb1) or not V.inOverworld() then
+      -- Battle init and field init move the save blocks (MoveSaveBlocks_ResetHeap), which would leave
+      -- gMapHeader.events pointing at stale memory: restore the ROM pointer as soon as we leave the overworld.
+      unpatch()
+      return
+    end
     if emu:read8(A.playerAvatar) & 1 ~= 0 then V.selfGfx = emu:read8(A.gObjectEvents + 5) end  -- on foot
     if not V.ok then
       if frame - lastValidate < 300 then return end

@@ -1,6 +1,76 @@
 # Phase 4 — PvP battle engine hooks (research plan for the in-emulator session)
 
-Status: **network side done and tested; battle addresses found (2026-10-24, see ram_map.md "Battle"); engine not started.**
+Status: **engine implemented (`client/rr_battle.lua`) and tested against a model of the battle loop; not yet run in the real emulator.**
+
+## The engine (client/rr_battle.lua) - how it works
+
+Loaded automatically by `rr_mp.lua` (set `pvp_engine=manual` to get the old manual stub back). Each client runs
+an ordinary single battle where the local player is battler 0 and the other player is battler 1 ("opponent").
+
+**Starting** (once both players are standing still on the map; the panel says so if not):
+| Write | Value | Why |
+|---|---|---|
+| gEnemyParty 0x0202402C (+ gEnemyPartyCount 0x0202402A) | the other player's team | their real Pokémon |
+| gBattleTypeFlags 0x02022B4C | `TRAINER \| EREADER_TRAINER` (0x808; `pvp_flags` overrides) | with EREADER_TRAINER `CreateNPCTrainerParty` does nothing (keeps our gEnemyParty), no EXP, no items, no Pokédex marks; CFRU keeps the flag at 0x800 |
+| SaveBlock2+0x4A4 (e-reader trainer name, 5 chars) | other player's name | "... would like to battle!" shows their name; class at +0x4A1 only if `pvp_class` is set |
+| SaveBlock2+0x15 bit 1 | battle style SET | otherwise "Shift" asks only one side whether to switch, which would desync |
+| gTrainerBattleOpponent_A 0x020386AE | 0 | not TRAINER_SECRET_BASE / UNION_ROOM |
+| gRngValue | battle seed | |
+| gMain.savedCallback (+8) | CB2_ReturnToField 0x080567DD | the wild-battle return path: no `CB2_EndTrainerBattle`, so no black-out and no trainer flag |
+| gMain.callback2 (+4) | CB2_InitBattle 0x0800FD9D | starts the battle next frame (no screen transition, map music continues) |
+
+**Decision rounds.** One protocol "turn" = one moment where the game asks for choices:
+- *turn round*: gBattleMainFunc enters HandleTurnActionSelectionState (0x08014041). Local choice is read when
+  battler 0's selection state (gBattleCommunication[0]) reaches 3/4: gChosenActionByBattler[0] = 0 → move
+  `{k="m", s=slot, t=target}` from gBattleBufferB[0][2..3]; = 2 → switch `{k="s", i=party index}` from [1].
+- *replacement round* (after a faint, U-turn...): CHOOSEPOKEMON (22) sent to battler 0 (exec bit stays set
+  while the player picks) and/or battler 1 (the AI answers in the same frame: seen as gBattleBufferB[1][0] = 34
+  CHOSENMONRETURNVALUE). Local choice `{k="r", i}`; a side not asked sends `{k="n"}`.
+- Battler 1 is held ("stalled") while the other player's choice is unknown: the engine keeps bit 1 of
+  gBattleControllerExecFlags (0x02023BC8) set every frame, so the main loop waits and the AI controller just
+  re-answers its last command. When the choice arrives it overwrites gBattleBufferB[1] right before the main
+  loop reads it: `{0x21, 0|2}` at state 1, `{0x21, 10, slot, target}` or `{34, index}` at state 2,
+  `{34, index}` (+ gBattleStruct->monToSwitchIntoId[1], offset 0x5C) for replacements. Targets are mirrored
+  (their battler 0 is our battler 1).
+- **RNG**: both sides write `seed XOR (round * 0x9E3779B1)` to gRngValue at the end of the frame in which the
+  main loop leaves the selection state (turn order is computed the next frame), and at the end of a
+  replacement round. Per-frame RNG use while waiting for input therefore doesn't matter.
+- **Hash**: FNV-1a over both active mons (species, HP, max HP, PP, stat stages, status1), side 0 first on both
+  machines, sent with each round's choice; the server ends the battle with `desync` on mismatch.
+
+**End**: gBattleOutcome 1/2 → winner reported to the server. If the server ends the battle first (forfeit,
+disconnect, timer, desync) the engine writes the outcome so the game ends at the next action check. When the
+game is back on the map (callback2 = CB2_Overworld, flags 0) it restores the party (rr_mp backup), money,
+battle-style option and e-reader slot. The save blocks move at battle start and on returning to the field;
+everything is re-read through gSaveBlock1Ptr/gSaveBlock2Ptr. `client/rr_visuals.lua` now restores
+gMapHeader.events whenever the game leaves the overworld, for the same reason.
+
+**Tested** in `tests/test_battle.py` with `tools/fake_battle.py` (a model of the selection state machine,
+controllers, RNG, faints and battle exit built from the decomp): full 2v2 battle with a faint replacement -
+both games log the identical (mirrored) battle; switching on both sides; forfeit mid-battle ends both games;
+a speed tie is caught as a desync; party/money/option/e-reader slot restored and back on the map.
+
+**Known limits**
+- Mirrored simulation: each game has its own player as battler 0. Anything decided by battler index - speed
+  ties, some end-of-turn ordering - comes out differently on the two machines. The hash check turns that into a
+  clean `desync` ending, not silent divergence. The real fix is Option A below (link battle mode).
+- Items are blocked by the EREADER flag; "Run" shows the game's can't-escape message.
+- No battle intro transition or battle music (map music keeps playing).
+- Abilities/items that make the AI controller or the game ask extra questions (e.g. Shift prompt) are untested.
+
+## Real-emulator verification (for the local session)
+Two windows, both scripts loaded, both standing on a map. Window 1: `mp.battle("Player2")`, window 2: `mp.fight()`.
+1. Both games cut to a battle against the other player's team; the intro names the other player.
+2. Pick moves in both windows; each game waits for the other (panel: `waiting for opponent`), then both play
+   the same turn. Compare HP after each turn.
+3. Switch, let a Pokémon faint (replacement), forfeit with `mp.forfeit()`.
+4. After the battle: party, money and the Options battle style are back; you are on the map; save works.
+5. Things most likely to need adjusting, in order: the CB2_InitBattle start without the transition task (if the
+   screen stays black, try starting from the transition callback 0x080565A9 or set gMain.state = 0); the
+   return callback; whether the opponent's replacement really goes through CONTROLLER_CHOOSEPOKEMON on RR;
+   the auto-answer seen after one A tap (check that pilot.lua releases A - a held key answers every prompt).
+
+## Local findings (2026-10-24)
 
 Local findings for the engine (all verified in real mGBA on RR, vanilla FR addresses hold):
 - Opponent override point (Option B): while gBattleMainFunc == 0x08014041, the AI writes gBattleBufferB[1]

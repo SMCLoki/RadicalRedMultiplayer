@@ -63,8 +63,10 @@ class ClientTest(unittest.TestCase):
     def gba(self, name, room="ROOM", work=None, profile=1, port=None):
         work = work or os.path.join(self.tmp, name)
         os.makedirs(work, exist_ok=True)
+        # no game runs in these tests, so battles use the manual engine (mp.act); see tests/test_battle.py
         g = FakeGBA(work, profile=profile,
-                    config={"host": "127.0.0.1", "port": port or self.srv.port, "room": room, "name": name})
+                    config={"host": "127.0.0.1", "port": port or self.srv.port, "room": room, "name": name,
+                            "pvp_engine": "manual"})
         g.set_position(3, 0, 5, 5)
         self.gbas.append(g)
         return g

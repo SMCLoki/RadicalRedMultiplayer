@@ -429,7 +429,8 @@ local visuals
 do
   local ok, err = pcall(dofile, scriptDir() .. "/rr_visuals.lua")
   if ok and _RRMP_VISUALS_NEW then
-    visuals = _RRMP_VISUALS_NEW({ enabled = cfg.visuals ~= "0", gfx = cfg.puppet_gfx, event = event })
+    visuals = _RRMP_VISUALS_NEW({ enabled = cfg.visuals ~= "0", gfx = cfg.puppet_gfx, event = event,
+                                  cbOverworld = cfg.cb_overworld })
   else
     event("visuals unavailable: " .. tostring(err))
   end
@@ -691,6 +692,17 @@ local function restoreParty()
 end
 M.restoreParty = restoreParty
 
+-- The real engine (client/rr_battle.lua) replaces the manual one above unless pvp_engine=manual.
+if cfg.pvp_engine ~= "manual" then
+  local ok, err = pcall(dofile, scriptDir() .. "/rr_battle.lua")
+  if ok and _RRMP_BATTLE_NEW then
+    M.engine = _RRMP_BATTLE_NEW({ event = event, cfg = cfg, work = WORK, profile = PROFILE, null = json.null,
+                                  frame = function() return S.frame end, restoreParty = restoreParty })
+  else
+    event("battle engine unavailable: " .. tostring(err))
+  end
+end
+
 local function backupParty()
   local n = partyCount()
   local out = { tostring(n) }
@@ -863,6 +875,7 @@ local function startBattle(m, resumed)
   b.stage, b.side, b.seed, b.turn = "active", m.side, m.seed, m.turn
   b.opp, b.party, b.rules = m.opp, m.party, m.rules
   if resumed and m.have_action then b.sentTurn = m.turn end
+  b.resumed = resumed
   if not resumed then backupParty() end
   local ok, why = M.engine.begin(b)
   b.engineRunning = ok
@@ -888,11 +901,13 @@ end
 function handlers.battle_result(m)
   local b = S.battle
   if not b or b.bid ~= m.bid then return end
-  local outcome = m.winner == nil and "no winner" or (m.winner == b.side and "YOU WIN" or "you lose")
+  local winner = m.winner ~= json.null and m.winner or nil
+  local outcome = winner == nil and "no winner" or (winner == b.side and "YOU WIN" or "you lose")
   event("battle over: " .. outcome .. " (" .. tostring(m.reason) .. ")")
   if b.stage == "active" and b.engineRunning then
-    pcall(M.engine.finish, b)
-    restoreParty()
+    -- the engine may defer the restore until the game is back on the map
+    local ok, deferred = pcall(M.engine.finish, b, winner)
+    if not (ok and deferred == true) then restoreParty() end
   else
     os.remove(BACKUP)
   end
@@ -941,7 +956,8 @@ local function render()
       monLabel(S.trade.mine), monLabel(S.trade.theirs)))
   end
   if S.battle then
-    add(string.format("Battle vs %s: %s turn %s", peerName(S.battle.peer), S.battle.stage, tostring(S.battle.turn)))
+    add(string.format("Battle vs %s: %s turn %s%s", peerName(S.battle.peer), S.battle.stage, tostring(S.battle.turn),
+      M.engine.status and M.engine.status() and ("  [" .. M.engine.status() .. "]") or ""))
   end
   if visuals then add(visuals.status()) end
   if #S.chat > 0 then
@@ -995,6 +1011,13 @@ local function tick()
   if S.frame % 30 == 0 then _RRMP_TRACE("tick " .. S.frame) end
   local f = S.frame
   sampleSteps()
+  if M.engine.tick then
+    local ok, e = pcall(M.engine.tick, f)
+    if not ok and f - visualsErrAt > 5 * FPS then
+      visualsErrAt = f
+      event("battle engine error: " .. tostring(e))
+    end
+  end
   if visuals and S.status == "online" then
     local ok, e = pcall(visuals.tick, f)
     if not ok and f - visualsErrAt > 5 * FPS then

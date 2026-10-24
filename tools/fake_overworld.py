@@ -28,8 +28,8 @@ class FakeOverworld:
         self.anim: dict[int, dict] = {}
         self.actions: list[tuple] = []   # (localId, actionId) for every held movement the engine started
         self.mem = gba.mem
-        self.w(GMAIN + 4, 4, 0x08011101)   # callback2 = "CB2_Overworld"
-        self.w(GMAIN, 4, 0x080123E5)
+        self.w(GMAIN + 4, 4, 0x080565B5)   # callback2 = CB2_Overworld (verified on RR)
+        self.w(GMAIN, 4, 0x08056535)
         self.w(SB1PTR, 4, SB1)
         gba.pre_frame.append(self.step)
 

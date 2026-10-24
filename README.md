@@ -56,7 +56,7 @@ Or type into the scripting window's input box at the bottom: `mp.name("Ash")`, `
 | `mp.accept(1)` | answer a trade offer with your slot 1 |
 | `mp.confirm()` | confirm the trade shown in the panel (both players must confirm) |
 | `mp.cancel()` / `mp.decline()` | cancel a trade / decline a trade or battle |
-| `mp.battle("Brock")`, `mp.fight()`, `mp.forfeit()` | battles (not playable yet, see progress) |
+| `mp.battle("Brock")`, `mp.fight()`, `mp.forfeit()` | challenge / accept / give up a PvP battle (new, being tested) |
 | `mp.visuals(false)` / `mp.visuals(true)` | hide / show other players as characters on your map |
 
 **After a trade, save your game in the game's menu.** If the game closes before you save, the script
