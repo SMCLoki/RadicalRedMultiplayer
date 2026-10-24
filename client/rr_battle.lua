@@ -284,6 +284,9 @@ function _RRMP_BATTLE_NEW(env)
       for _ = 1, VBLANK_STEPS do x = rngPrev(x) end
       if cfg.rng_lock ~= "0" then w32(A.rng, x) end
       c.lagFrames = (c.lagFrames or 0) + 1
+      -- parking is safe even mid-iteration (it only stops the AI from answering), so don't miss the window
+      -- before the main loop sends CHOOSEACTION (run 7: one turn in 18 was answered by the AI)
+      if not c.aborted and r32(A.mainFunc) == MAIN_SELECT and r8(A.comm + 1) == 0 then park(c) end
       return
     end
     local main = r32(A.mainFunc)
@@ -367,7 +370,16 @@ function _RRMP_BATTLE_NEW(env)
       unpark(c)                                    -- never leave battler 1 parked outside a decision
     end
     c.prevMain = main
-    if cfg.rng_lock ~= "0" then lockRng(c, main) end
+    if cfg.rng_lock ~= "0" then
+      lockRng(c, main)
+      -- also cancel the VBlank Random() that follows this callback (run 6: the callback runs before the VBlank
+      -- handler), so gRngValue never moves with time - only with game code
+      if cfg.vblank_cancel ~= "0" then
+        local x = r32(A.rng)
+        for _ = 1, VBLANK_STEPS do x = rngPrev(x) end
+        w32(A.rng, x)
+      end
+    end
 
     local outcome = r8(A.outcome)
     if outcome ~= 0 and c.winner == nil then

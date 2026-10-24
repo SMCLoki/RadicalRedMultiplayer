@@ -297,3 +297,27 @@ Setup as run 6 (2 Chikorita each, window 2 Speed 30). `battle_trace.lua` in both
 - `compare_traces.py` should report the first differing dmg/hp per (main, instr, occurrence) step, not only path
   differences.
 - Not reached yet: a faint replacement and a natural winner.
+
+## 2026-10-24 - cloud: analysis of run 7 + changes
+Re-reading `docs/evidence_btrace_run7_*` step by step (new `tools/compare_traces.py` output):
+- **The RNG lock held.** gRngValue is identical in both windows at every exec=0 step, including the crit and damage
+  steps (turn 1: ...081D6931 `4E36D729`, 081D6932 `161FF192`; turn 2: `9E63163A`, `C5F3B281`).
+- **No critical hit happened.** 0x02023D71 *is* CFRU's gCritMultiplier (`include/new/ram_locs_battle.h`); CFRU stores
+  10 for a normal hit and 15 for a crit (1.5x), so `crit=10` on every line means no crit in either game.
+- **Same random value, double base damage for the opponent side** (10 vs 5 at 081D6932, both turns, both windows).
+- **Where it comes from:** before the opponent-side battler's first move, both games run a Radical-Red-only battle
+  script (`0x0900188A`-`0x090018B1`, expanded ROM) for battler 1, including ~280 frames of a battler-1 controller
+  animation (`f1=08036501`). It never runs for the player side. Exactly 2x fits a +2 Attack boost (Gen 7+ X Attack),
+  i.e. a trainer item/boost given to the opponent side. CFRU's open source has no such side rule, so it is RR's
+  own trainer logic (possibly triggered by the AI's one unparked turn in run 7, or by trainer data).
+Changes:
+- `client/battle_trace.lua` now writes a `MONS` line at every turn start with both active Pokémon's full battle data
+  (gBattleMons 0x58 bytes); `compare_traces.py` diffs them field by field (stat stages, ability, types...) and
+  reports the first damage/HP difference among common steps, the first RNG difference, and path differences.
+- Battler 1 is parked even on lag frames (safe mid-iteration), closing the window where the AI could answer once.
+- VBlank Random() is cancelled on every battle frame (`vblank_cancel=0` disables), as suggested, so gRngValue never
+  moves with time. Not the cause of run 7's desync, but removes a class of drift.
+Next run: the `MONS` diff at turn 2 will show whether battler 1's Attack stage is +2 in each game. If the extra
+script still runs with the AI fully parked, it is RR trainer logic tied to the opponent side, and the fix is to run
+both games from the same side (the challenger as battler 0 on both machines) - see docs/phase4_battle.md.
+

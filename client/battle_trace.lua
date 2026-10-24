@@ -1,5 +1,6 @@
 -- Fine-grained PvP battle trace: one line per battle-script step (gBattleMainFunc / gBattlescriptCurrInstr
--- change) plus every lag frame, to work/btrace_<tag>.txt. Compare two windows with tools/compare_traces.py.
+-- change) plus every lag frame, and a dump of both active Pokemon's battle data (gBattleMons) at each turn start,
+-- to work/btrace_<tag>.txt. crit = gCritMultiplier (CFRU: 10 = normal hit, 15 = critical). Compare two windows with tools/compare_traces.py.
 -- Load in each window after rr_mp.lua (set PILOT_FILE in window 2 first; it is used as the tag).
 -- Must not end with a return statement (mGBA 0.10).
 local function workDir()
@@ -11,7 +12,7 @@ local WORK = workDir()
 local TAG = (PILOT_FILE or "pilot.txt"):gsub("%.txt$", "")
 local OUT = WORK .. "btrace_" .. TAG .. ".txt"
 local MONS, BMON = 0x02023BE4, 0x58
-local lastKey, lastPt, n = nil, nil, 0
+local lastKey, lastPt, lastMain, n = nil, nil, nil, 0
 if _BTRACE_CB then pcall(callbacks.remove, callbacks, _BTRACE_CB) end
 _BTRACE_CB = callbacks:add("frame", function()
   n = n + 1
@@ -20,6 +21,13 @@ _BTRACE_CB = callbacks:add("frame", function()
   local lag = pt == lastPt
   lastPt = pt
   local main, instr, exec = emu:read32(0x03004F84), emu:read32(0x02023D74), emu:read32(0x02023BC8)
+  if main == 0x08014041 and lastMain ~= 0x08014041 then
+    -- turn start: full battle data of both active Pokemon (compare_traces.py diffs them, mirrored)
+    local hex = function(a) return (emu:readRange(a, BMON):gsub(".", function(ch) return string.format("%02X", ch:byte()) end)) end
+    local fh = io.open(OUT, "ab")
+    if fh then fh:write(string.format("%d MONS b0=%s b1=%s", n, hex(MONS), hex(MONS + BMON)), string.char(10)); fh:close() end
+  end
+  lastMain = main
   local key = main .. ":" .. instr
   if key == lastKey and not lag then return end
   lastKey = key
