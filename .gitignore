@@ -1,0 +1,13 @@
+# Never publish game files, saves or states (copyrighted / personal)
+*.gba
+*.sav
+*.ss[0-9]
+*.ss
+*.zip
+*.exe
+1636 - Pokemon*/
+work/
+# misc
+__pycache__/
+*.pyc
+node_modules/
