@@ -441,7 +441,7 @@ M.S = S
 
 local function event(msg)
   S.log[#S.log + 1] = msg
-  if #S.log > 6 then table.remove(S.log, 1) end
+  if #S.log > (QUIET and 15 or 6) then table.remove(S.log, 1) end   -- the launcher has room for more
   S.dirty = true
   if console and console.log and not QUIET then console:log("[mp] " .. msg) end
 end
@@ -1061,6 +1061,7 @@ local function pollCommands()
   if not text then return end
   os.remove(CMD_PATH)
   for line in text:gmatch("[^\r\n]+") do
+    event("> " .. line)
     local chat = line:match("^say (.+)$")
     if chat then
       pcall(_G.mp.say, chat)
@@ -1352,7 +1353,14 @@ local function resolvePeer(who)
   return nil
 end
 
-local function say(s) if console and console.log then console:log(s) end; return s end
+local function say(s)
+  if console and console.log then console:log(s) end
+  -- started by the launcher: the console is not shown, so put command replies in the status file it displays
+  if QUIET then
+    for line in tostring(s):gmatch("[^\r\n]+") do event(line) end
+  end
+  return s
+end
 
 local mp = {}
 _G.mp = mp
