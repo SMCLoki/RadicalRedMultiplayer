@@ -82,6 +82,7 @@ local function pickProfile()
 end
 
 local PROFILE = pickProfile()
+M.profile = PROFILE   -- read by test tools (pilot.lua picks pilot<N>.txt for profile N > 1)
 local function touchLock() writeFile(WORK .. "mp_lock_" .. PROFILE .. ".txt", tostring(os.time())) end
 touchLock()
 

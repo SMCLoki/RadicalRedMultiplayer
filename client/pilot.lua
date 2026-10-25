@@ -13,6 +13,10 @@ local function workDir()
   return (src:match("^(.*)/[^/]*$") or ".") .. "/../work/"
 end
 local DIR = workDir()
+-- second and later windows: use pilot<profile>.txt automatically when rr_mp.lua is loaded first (no console typing)
+if not PILOT_FILE and _RRMP_INSTANCE and (_RRMP_INSTANCE.profile or 1) > 1 then
+  PILOT_FILE = "pilot" .. _RRMP_INSTANCE.profile .. ".txt"
+end
 local BIT = { A = 0, B = 1, SELECT = 2, START = 3, RIGHT = 4, LEFT = 5, UP = 6, DOWN = 7, R = 8, L = 9 }
 
 local lastId, queue, cur, frame, doneId = nil, {}, nil, 0, nil
@@ -88,7 +92,7 @@ _PILOT_CB = callbacks:add("frame", function()
       elseif cur.op == "DUMP" then dump(cur.a); cur = nil
       elseif cur.op == "EXEC" then
         -- run one line of Lua (e.g. mp.battle("Player2")) without typing into the scripting console
-        local fn, err = load(cur.code)
+        local fn, err = load(cur.code, "exec", "t", _ENV)   -- mGBA gives each script its own environment (emu, mp...)
         local ok, res = false, err
         if fn then ok, res = pcall(fn) end
         local f = io.open(DIR .. (PILOT_FILE or "pilot.txt"):gsub("%.txt$", "") .. "_exec.txt", "ab")

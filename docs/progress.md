@@ -494,3 +494,14 @@ Beta checklist sections 1-3 pass on one PC. Open: section 4 (two PCs via Tailsca
   - client: on a crossed offer the client keeps which Pokémon it offered (stage "answered").
   - visuals: the talk script is refreshed for any puppet object on the faced tile, even when its sprite isn't
     re-confirmed yet (likely cause of the stale "Waiting for Player1..." box after a battle).
+
+## 2026-10-24 - real mGBA run 13 (local): retests after the panel was closed
+- Clients reloaded in both windows (scripting Reset + load). Note: reloading within 15 s of a Reset picks a new profile
+  (old lock still fresh) - wait 15 s or set RRMP_PROFILE. pilot.lua now picks pilot<N>.txt from rr_mp's profile.
+- Stale talk scripts from the old client hung both games ("Waiting..." box, no Yes/No); recovered by LOADSTATE.
+- **Crossed trade offers under ~300 ms lag: WORK.** Both opened TRADE CENTER at once; the server merged them, window 1
+  got the preview + "Player2 confirmed", confirmed via the talk menu -> TRADE DONE in both, committed.
+- **No stale box after a trade:** talking again shows the fresh TRADE CENTER / COLOSSEUM / EXIT menu.
+- pilot EXEC still returns `false nil` in the real emulator even with load(..., _ENV) - not working yet.
+- Still open: player-pressed Z-Move (needs EXEC or the console to give item 580 = Normalium Z), talk after
+  emu:reset(), stale box after a battle, two-PC test.
