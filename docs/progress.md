@@ -523,3 +523,9 @@ Beta checklist sections 1-3 pass on one PC. Open: section 4 (two PCs via Tailsca
   headerOk now follows the original MapEvents pointer saved in the fake header.
 - pilot EXEC fixed: pilot.lua's own `load()` hid Lua's `load`. `EXEC mp.battle("Player2")` / `EXEC mp.fight()`
   return `true nil` and start the battle.
+- Forfeit re-tested twice more (3/3): both games end, parties restored, the other player stays drawn.
+- **Player-pressed Z-Move: still not tested.** Window 1 got Normalium Z (item 580, confirmed in the ROM item table)
+  and a Z-Power Ring (key item 267, put into the CFRU key pocket at 0x0203C228; bag pockets table at 0x0203988C).
+  The move menu never showed a Z trigger (START does nothing, R shows field info), even in a battle started after
+  adding the ring. Radical Red probably also needs a story flag. Test from a save that can already use Z-Moves.
+  Test changes undone (Oran Berry back, ring removed).
