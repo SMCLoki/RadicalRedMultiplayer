@@ -8,6 +8,7 @@ where py >nul 2>nul && set PY=py -3
 %PY% tests\test_visuals.py || goto :fail
 %PY% tests\test_battle.py || goto :fail
 %PY% tests\test_talk.py || goto :fail
+%PY% tests\test_launcher.py || goto :fail
 %PY% server\soak.py --minutes 0.5 || goto :fail
 echo ALL TESTS PASSED
 pause
