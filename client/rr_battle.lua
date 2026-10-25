@@ -360,6 +360,13 @@ function _RRMP_BATTLE_NEW(env)
       local remote = c.aborted and { k = "ai" } or remoteFor(c, rd)
       if remote and remote.k == "ai" then unpark(c) end
       if rd.kind == "turn" then
+        -- "Run" in a trainer-style battle makes the game print "can't run away" and ask again, forever. In PvP it
+        -- means "give up": forfeit once (both games end the battle) - reported in real play, 2026-10-24.
+        if not c.ranAway and r8(A.bufB) == CMD_TWO and r8(A.bufB + 1) == 3 then
+          c.ranAway = true
+          log("battle: Run = forfeit")
+          if env.forfeit then pcall(env.forfeit) end
+        end
         -- local choice is final once battler 0's selection state passes "case chosen"
         if not rd.decision and (st0 == 3 or st0 == 4) then
           local act = r8(A.chosenAction)

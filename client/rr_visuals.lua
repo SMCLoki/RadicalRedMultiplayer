@@ -132,7 +132,13 @@ function _RRMP_VISUALS_NEW(env)
     local hdr = A.gMapHeader
     local fake = sb1 + SB1_TEMPLATES + FAKE_SLOT * TPL
     local ev = emu:read32(hdr + 4)
-    if ev == fake then return true end
+    if ev == fake then
+      -- already patched - possibly by a save state of another map: take count and original pointer from RAM
+      local orig = emu:read32(fake + 0x14)
+      if not isRom(orig) then V.mapReason = "patched map header without original pointer"; return false end
+      V.baseCount, V.origEvents, V.fake = emu:read8(fake) - MAX_PUPPETS, orig, fake
+      return true
+    end
     if isEwram(ev) then
       -- our copy from before the save block moved
       if not V.origEvents then return false end
@@ -159,6 +165,7 @@ function _RRMP_VISUALS_NEW(env)
     local raw = emu:readRange(ev, 0x14)
     for i = 0, 0x10, 4 do emu:write32(fake + i, (string.unpack("<I4", raw, i + 1))) end
     emu:write8(fake, count + MAX_PUPPETS)
+    emu:write32(fake + 0x14, ev)                           -- original pointer, for save states (see above)
     emu:write32(hdr + 4, fake)
     return true
   end
@@ -167,6 +174,75 @@ function _RRMP_VISUALS_NEW(env)
     if V.fake and V.origEvents and emu:read32(A.gMapHeader + 4) == V.fake then
       emu:write32(A.gMapHeader + 4, V.origEvents)
     end
+    if V.scriptsAt and V.origScripts and emu:read32(A.gMapHeader + 8) == V.scriptsAt then
+      emu:write32(A.gMapHeader + 8, V.origScripts)
+    end
+    V.scriptsAt = nil
+  end
+
+  -- Auto-spawn: the game only spawns object events when the camera moves, so a player who arrives while you stand
+  -- still stayed invisible. We add an ON_FRAME map script (checked every overworld frame while you are free to move):
+  -- when VAR_TEMP_F == SPAWN_MAGIC it runs a tiny RAM script `addobject 0x70+k ...; setvar 0x400F, 0; end`.
+  -- The tables and the script live in free template slots between the puppets and the talk script.
+  -- trigger var: VAR_TEMP_F (saved vars live at SaveBlock1+0x1000; temp vars are cleared on map load). A special var
+  -- (0x8009) did not work in real mGBA: RR clears it before the ON_FRAME check.
+  local SPAWN_VAR, SPAWN_MAGIC = 0x400F, 0x4D51
+  local function spawnVarAddr(sb1) return sb1 + 0x1000 + (SPAWN_VAR - 0x4000) * 2 end
+  local function wbytes(addr, str) for i = 1, #str do emu:write8(addr + i - 1, str:byte(i)) end end
+
+  local SPAWN_SLOT = 49   -- slots 49-53 (120 bytes): spawn script, saved original pointer, ON_FRAME table, map scripts
+  local function patchScripts(sb1)
+    local hdr = A.gMapHeader
+    local region = sb1 + SB1_TEMPLATES + SPAWN_SLOT * TPL
+    local limit = scriptAddr(sb1)
+    local spawnAt, origAt, frameAt = region, region + 28, region + 32
+    if V.baseCount + MAX_PUPPETS > SPAWN_SLOT then V.spawnReason = "map has too many objects"; return false end
+    local cur = emu:read32(hdr + 8)
+    if cur ~= 0 and cur >= region and cur < limit then
+      if V.scriptsAt == cur then return true end
+      cur = emu:read32(origAt)               -- ours from a save state: start again from the saved original
+      if cur ~= 0 and not isRom(cur) then return false end
+    elseif cur ~= 0 and not isRom(cur) then
+      return false
+    end
+    local entries, onframe = {}, {}
+    if cur ~= 0 then
+      for i = 0, 15 do
+        local a = cur + i * 5
+        local typ = emu:read8(a)
+        if typ == 0 then break end
+        local ptr = emu:read8(a + 1) | (emu:read8(a + 2) << 8) | (emu:read8(a + 3) << 16) | (emu:read8(a + 4) << 24)
+        entries[#entries + 1] = { typ, ptr }
+        if typ == 2 and isRom(ptr) then
+          for j = 0, 15 do
+            local e = ptr + j * 8
+            if emu:read16(e) == 0 then break end
+            onframe[#onframe + 1] = emu:readRange(e, 8)
+          end
+        end
+      end
+    end
+    local ft = { string.pack("<I2I2I4", SPAWN_VAR, SPAWN_MAGIC, spawnAt) }
+    for _, e in ipairs(onframe) do ft[#ft + 1] = e end
+    ft[#ft + 1] = string.pack("<I2", 0)
+    local frameTable = table.concat(ft)
+    local scriptsAt = frameAt + #frameTable
+    local mt, hasFrame = {}, false
+    for _, e in ipairs(entries) do
+      if e[1] == 2 then mt[#mt + 1] = string.pack("<BI4", 2, frameAt); hasFrame = true
+      else mt[#mt + 1] = string.pack("<BI4", e[1], e[2]) end
+    end
+    if not hasFrame then mt[#mt + 1] = string.pack("<BI4", 2, frameAt) end
+    mt[#mt + 1] = string.char(0)
+    local mapTable = table.concat(mt)
+    if scriptsAt + #mapTable > limit then V.spawnReason = "map has too many scripts"; return false end
+    wbytes(spawnAt, string.char(0x02))         -- `end` until there is something to spawn
+    emu:write32(origAt, cur)
+    wbytes(frameAt, frameTable)
+    wbytes(scriptsAt, mapTable)
+    V.origScripts, V.scriptsAt, V.spawnAt, V.spawnReason = cur, scriptsAt, spawnAt, nil
+    emu:write32(hdr + 8, scriptsAt)
+    return true
   end
 
   ------------------------------------------------------------------------------------------------
@@ -348,11 +424,12 @@ function _RRMP_VISUALS_NEW(env)
     end
 
     -- find spawned puppets and drive or hide them
-    local shown, at = 0, {}
+    local shown, at, activeK = 0, {}, {}
     for i = 1, NOBJ - 1 do
       local o = objAddr(i)
       if emu:read32(o) & F_ACTIVE ~= 0 then
         local k = emu:read8(o + 8) - LOCALID_BASE
+        if k >= 0 and k < MAX_PUPPETS then activeK[k] = true end
         if k >= 0 and k < MAX_PUPPETS then
           local onMap = emu:read8(o + 9) == num and emu:read8(o + 10) == group
           local p = patched and onMap and V.slotPeer[k] and V.peers[V.slotPeer[k]]
@@ -368,6 +445,23 @@ function _RRMP_VISUALS_NEW(env)
     end
     V.shown = shown
     V.reason = patched and "on" or ("paused: " .. (V.mapReason or "map not patched"))
+
+    -- every 1.6 s: spawn puppets for players on this map that the game hasn't spawned yet (no camera move needed)
+    if patched and env.autoSpawn ~= false and frame - (V.lastSpawn or -9999) >= 96 then
+      V.lastSpawn = frame
+      if patchScripts(sb1) and emu:read16(spawnVarAddr(sb1)) ~= SPAWN_MAGIC
+          and emu:read32(A.gObjectEvents) & F_FROZEN == 0 then
+        local cmds = {}
+        for k = 0, MAX_PUPPETS - 1 do
+          if V.slotPeer[k] and not activeK[k] then cmds[#cmds + 1] = string.char(0x53, LOCALID_BASE + k, 0) end
+        end
+        if #cmds > 0 then
+          wbytes(V.spawnAt, table.concat(cmds) .. string.pack("<BI2I2B", 0x16, SPAWN_VAR, 0, 0x02))
+          emu:write16(spawnVarAddr(sb1), SPAWN_MAGIC)
+          V.spawned = (V.spawned or 0) + #cmds
+        end
+      end
+    end
 
     -- talk-to-player: keep the shared script prepared for the puppet the player is facing. Never rewrite it
     -- while a script runs (the player object is frozen by `lock` from the moment A is pressed).

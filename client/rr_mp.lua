@@ -704,7 +704,8 @@ if cfg.pvp_engine ~= "manual" then
   local ok, err = pcall(dofile, scriptDir() .. "/rr_battle.lua")
   if ok and _RRMP_BATTLE_NEW then
     M.engine = _RRMP_BATTLE_NEW({ event = event, cfg = cfg, work = WORK, profile = PROFILE, null = json.null,
-                                  frame = function() return S.frame end, restoreParty = restoreParty })
+                                  frame = function() return S.frame end, restoreParty = restoreParty,
+                                  forfeit = function() if _G.mp then return _G.mp.forfeit() end end })
   else
     event("battle engine unavailable: " .. tostring(err))
   end
