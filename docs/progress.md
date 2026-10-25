@@ -563,3 +563,10 @@ Beta checklist sections 1-3 pass on one PC. Open: section 4 (two PCs via Tailsca
   prompt on first Host.
 - New tests: tests/test_launcher.py (9: UPnP against a fake router on localhost, ROM check, address parsing, save
   backups).
+- **UPnP on the user's real router (approved 2026-10-25): no UPnP.** Gateway 10.0.0.1 (looks like an
+  Xfinity/Comcast gateway) did not answer SSDP, neither multicast nor sent straight to it (single Wi-Fi adapter
+  10.0.0.199, no VPN or virtual adapters). Its admin page on port 80 is reachable, so the network is fine and UPnP
+  is simply off. No mapping was created. The launcher's fallback text was checked: forward TCP <port> to
+  10.0.0.199, or use Tailscale; LAN players can join 10.0.0.199.
+  Next options: the user turns UPnP on in the gateway settings (then re-test), forwards the port by hand, or
+  uses Tailscale. A cross-network test still needs a second PC or a friend.
