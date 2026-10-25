@@ -620,3 +620,12 @@ host's PC; this removes the Tailscale suggestions and fills the gaps.
   service (the cloud session's test is kept).
   - Checked against a real server on 0.0.0.0:8773: it is found at 10.0.0.199 and appears once.
   - Not checked yet: Radmin itself. It isn't installed here, and a second PC on Radmin is needed.
+- **One-click installer (2026-10-25):** tools/build_launcher.py now also builds
+  dist/RadicalRedOnline-Setup-<version>.exe (43 MB, PyInstaller, installer/setup.py), with the zip inside.
+  - Double-click installs to %LOCALAPPDATA%\RadicalRedOnline (no admin), adds Desktop and Start-menu shortcuts and
+    an Uninstall.bat, then starts the launcher.
+  - Re-running it updates the install and keeps work\ (settings, save backups).
+  - Tested on this PC in a test folder (RRMP_INSTALL_DIR / RRMP_SHORTCUT_DIR overrides): files and shortcut
+    target correct, update kept launcher.json and removed a stale file, and the windowed run started the
+    installed launcher.
+  - Unsigned, so Windows SmartScreen will warn on other PCs ("More info" > "Run anyway").

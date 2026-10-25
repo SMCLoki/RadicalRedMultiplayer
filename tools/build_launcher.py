@@ -7,6 +7,7 @@ Needs PyInstaller (py -3 -m pip install --user pyinstaller). The mGBA folder mus
 No ROMs or saves are ever copied.
 """
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -77,6 +78,18 @@ def main() -> None:
     archive = shutil.make_archive(str(zip_base), "zip", root_dir=dist, base_dir="RadicalRedOnline")
     print("built", out)
     print("zip  ", archive, f"{Path(archive).stat().st_size // (1024 * 1024)} MB")
+
+    # one-click installer: the zip rides inside a small setup .exe (installer/setup.py)
+    payload = build / "payload" / "payload.zip"
+    payload.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(archive, payload)
+    setup_name = f"RadicalRedOnline-Setup-{VERSION}"
+    subprocess.run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--onefile", "--windowed",
+                    "--name", setup_name, "--add-data", f"{payload}{os.pathsep}.",
+                    "--distpath", str(dist), "--workpath", str(build / "work_setup"), "--specpath", str(build),
+                    str(ROOT / "installer" / "setup.py")], check=True)
+    setup = dist / f"{setup_name}.exe"
+    print("setup", setup, f"{setup.stat().st_size // (1024 * 1024)} MB")
 
 
 if __name__ == "__main__":
