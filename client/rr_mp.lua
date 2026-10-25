@@ -77,6 +77,10 @@ local function envSetting(key)
   if ok and v and v ~= "" then return v end
 end
 
+-- Started by the launcher: keep out of mGBA's console entirely (the launcher shows the status file). Updating the
+-- console from the game thread hung mGBA 0.11 when the window lost focus or Settings opened (real play 2026-10-25).
+local QUIET = envSetting("nopanel") == "1"
+
 local function pickProfile()
   if RRMP_PROFILE then return tonumber(RRMP_PROFILE) end
   if tonumber(envSetting("profile") or "") then return tonumber(envSetting("profile")) end
@@ -439,7 +443,7 @@ local function event(msg)
   S.log[#S.log + 1] = msg
   if #S.log > 6 then table.remove(S.log, 1) end
   S.dirty = true
-  if console and console.log then console:log("[mp] " .. msg) end
+  if console and console.log and not QUIET then console:log("[mp] " .. msg) end
 end
 
 -- Remote players drawn as overworld characters (client/rr_visuals.lua, docs/visuals.md)
@@ -807,7 +811,7 @@ function handlers.chat(m)
   S.chat[#S.chat + 1] = string.format("%s: %s", m.name or peerName(m.from), m.text or "")
   if #S.chat > 8 then table.remove(S.chat, 1) end
   S.dirty = true
-  if console and console.log then console:log("[chat] " .. S.chat[#S.chat]) end
+  if console and console.log and not QUIET then console:log("[chat] " .. S.chat[#S.chat]) end
 end
 
 function handlers.pong(m)
@@ -956,7 +960,7 @@ end
 -- UI: scripting text buffer + work/mp_status_<profile>.txt
 
 local panel
-if console and console.createBuffer and not io.open(WORK .. "mp_nopanel", "rb") then
+if console and console.createBuffer and not QUIET and not io.open(WORK .. "mp_nopanel", "rb") then
   local ok, buf = pcall(console.createBuffer, console, "RR Online")
   if ok and buf then
     panel = buf
