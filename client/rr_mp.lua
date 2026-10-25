@@ -476,6 +476,11 @@ end
 ------------------------------------------------------------------------------------------------
 -- Networking (mGBA socket API: raw TCP; connect blocks, everything else is event driven)
 
+-- Real time in seconds. Timers use it instead of frame counts: with fast-forward the game runs many frames per
+-- second, which made the 6 s timeout fire in well under a second and file writes multiply (mGBA froze).
+-- On Windows os.clock() is wall-clock time since the program started.
+local function clock() return os.clock() end
+
 local net = { sock = nil, inbuf = "", outbuf = "", lastRx = 0, nextPing = 0, backoff = 1,
               retryAt = 0, pingN = 0, pingAt = {}, rtt = nil, auto = cfg.autoconnect ~= "0" }
 M.net = net
@@ -514,7 +519,7 @@ local function drop(reason, retry)
     S.status = "stopped"
   else
     S.status = "offline"
-    net.retryAt = S.frame + net.backoff * FPS
+    net.retryAt = clock() + net.backoff
     net.backoff = math.min(net.backoff * 2, 10)
   end
   S.statusMsg = reason or ""
@@ -565,7 +570,7 @@ local function onReceived()
     if not TRANSIENT[err] then drop(err or "disconnected") end
     return
   end
-  net.lastRx = S.frame
+  net.lastRx = clock()
   net.inbuf = net.inbuf .. data
   if #net.inbuf > 65536 then drop("server line too long"); return end
   while true do
@@ -595,7 +600,7 @@ local function connect()
     return
   end
   net.sock, net.inbuf, net.outbuf = sock, "", ""
-  net.lastRx, net.nextPing = S.frame, S.frame + 2 * FPS
+  net.lastRx, net.nextPing = clock(), clock() + 2
   sock:add("received", onReceived)
   -- mGBA calls socket callbacks as cb(socket, ...)
   sock:add("error", function(_, e) _RRMP_TRACE("cb error " .. tostring(e)); if net.sock == sock then drop("socket error " .. tostring(e)) end end)
@@ -817,7 +822,7 @@ end
 function handlers.pong(m)
   local sent = net.pingAt[m.n]
   if sent then
-    net.rtt = math.floor((S.frame - sent) * 1000 / FPS)
+    net.rtt = math.floor((clock() - sent) * 1000)
     net.pingAt[m.n] = nil
   end
 end
@@ -1070,9 +1075,32 @@ local function pollCommands()
   end
 end
 
+-- run something at most once per `secs` of real time (not per frame: fast-forward must not multiply file I/O)
+local lastRun = {}
+local function every(name, secs)
+  local t = clock()
+  if t - (lastRun[name] or -1e9) >= secs then lastRun[name] = t; return true end
+  return false
+end
+
+-- Autosave: a save state every AUTOSAVE_SECONDS while walking around (never in a battle, trade, menu or
+-- script), rotating through 3 files in work/: autosave_<profile>_1..3.ss. Load one with mGBA's
+-- File > Load State File. It does not write the in-game .sav; use the game's Save for that.
+local AUTOSAVE_SECONDS = tonumber(cfg.autosave_seconds or "") or 10
+local autosaveN = 0
+local function autosave()
+  if AUTOSAVE_SECONDS <= 0 or not emu.saveStateFile then return end
+  if M.engine.cur or (M.engine.inOverworld and not M.engine.inOverworld()) then return end
+  if S.trade and S.trade.stage then return end
+  autosaveN = autosaveN % 3 + 1
+  -- flags 2|8 = save data + RTC, no screenshot: taking the screenshot from the frame callback hung mGBA 0.11
+  pcall(emu.saveStateFile, emu, WORK .. "autosave_" .. PROFILE .. "_" .. autosaveN .. ".ss", 10)
+end
+
 local function tick()
   S.frame = S.frame + 1
-  if S.frame % 30 == 15 then pcall(pollCommands) end
+  local t = clock()
+  if every("commands", 0.5) then pcall(pollCommands) end
   if #pendingClose > 0 then closePending() end
   if S.frame % 30 == 0 then _RRMP_TRACE("tick " .. S.frame) end
   local f = S.frame
@@ -1098,25 +1126,26 @@ local function tick()
   if cfg.manual_poll == "1" and net.sock and net.sock.poll then pcall(net.sock.poll, net.sock) end
   if net.sock then
     if S.status == "online" or S.status == "connecting" then
-      if f >= net.nextPing then
+      if t >= net.nextPing then
         net.pingN = net.pingN + 1
-        net.pingAt[net.pingN] = f
+        net.pingAt[net.pingN] = t
         net.pingAt[net.pingN - 10] = nil
         send({ t = "ping", n = net.pingN })
-        net.nextPing = f + 2 * FPS
+        net.nextPing = t + 2
       end
-      if f - net.lastRx > 6 * FPS then drop("timeout (no data from server for 6s)") end
+      if t - net.lastRx > 6 then drop("timeout (no data from server for 6s)") end
     end
     if f % 6 == 0 then presenceTick() end
-    if f % 30 == 0 then processCommits() end
-    if f % 300 == 0 and S.status == "online" and reconcile() > 0 then event("save your game!") end
+    if every("commits", 0.5) then processCommits() end
+    if every("reconcile", 5) and S.status == "online" and reconcile() > 0 then event("save your game!") end
     battleTick()
     flush()
-  elseif S.status == "offline" and net.auto and f >= net.retryAt then
+  elseif S.status == "offline" and net.auto and t >= net.retryAt then
     connect()
   end
-  if f % 300 == 0 then touchLock() end
-  if S.dirty and f % 15 == 0 or f % 60 == 0 then render() end
+  if every("lock", 5) then touchLock() end
+  if (S.dirty and every("render", 0.25)) or every("render_idle", 1) then render() end
+  if every("autosave", AUTOSAVE_SECONDS) then autosave() end
 end
 
 local frameCb = callbacks:add("frame", function()
@@ -1515,7 +1544,7 @@ function mp.reload()
   if net.sock then send({ t = "bye" }); flush() end
   drop("reconnecting", true)
   loadConfig()
-  net.auto, net.backoff, net.retryAt = true, 1, S.frame
+  net.auto, net.backoff, net.retryAt = true, 1, clock()
   return true
 end
 
