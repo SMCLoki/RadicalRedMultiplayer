@@ -30,6 +30,7 @@ function _RRMP_VISUALS_NEW(env)
   V.scriptAddr = scriptAddr
   local MAP_OFFSET, FAR = 7, -1000
   local F_ACTIVE, F_HELD, F_HELD_DONE, F_FROZEN, F_INVISIBLE, F_PLAYER = 0x1, 0x40, 0x80, 0x100, 0x2000, 0x10000
+  local SETTLE_FRAMES = 60   -- player free this long on a new map before multiplayer touches it (1 s)
   -- MOVEMENT_ACTION_* from pokefirered include/constants/event_object_movement.h; index = facing (1 down 2 up 3 left 4 right)
   local ACT_FACE = { 0x00, 0x01, 0x02, 0x03 }
   local ACT_WALK = { 0x10, 0x11, 0x12, 0x13 }
@@ -412,6 +413,19 @@ function _RRMP_VISUALS_NEW(env)
     end
     for k, id in pairs(V.slotPeer) do
       if not V.peers[id] then V.slotPeer[k], peerSlot[id] = nil, nil end
+    end
+
+    -- The game goes first: on each map, change nothing until the player has been free to move (no script, text
+    -- or cutscene running) for SETTLE_FRAMES. Entry events (frame scripts, warp-in scripts) start before that and
+    -- freeze the player, so they always run on an untouched map. Once patched, the map stays patched (puppets and
+    -- the talk menu need it while their own scripts run).
+    local free = emu:read32(A.gObjectEvents) & F_FROZEN == 0
+    if here ~= V.settleMap then V.settleMap, V.freeSince = here, nil end
+    if not free then V.freeSince = nil elseif not V.freeSince then V.freeSince = frame end
+    local alreadyPatched = emu:read32(A.gMapHeader + 4) == sb1 + SB1_TEMPLATES + FAKE_SLOT * TPL
+    if not alreadyPatched and not (V.freeSince and frame - V.freeSince >= SETTLE_FRAMES) then
+      V.reason = "on (waiting for the room's own events)"
+      return
     end
 
     local patched = patch(sb1)
