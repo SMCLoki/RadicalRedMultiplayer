@@ -161,14 +161,17 @@ def _addr(ip: str, port: int) -> str:
 
 
 def hosting_advice(port: int, lan_ip: str | None, gateway: str | None, external: str | None = None,
-                   error: str | None = None) -> str:
+                   error: str | None = None, vpn: list[tuple[str, str]] | None = None) -> str:
     """What the host should tell friends, using only their own PC and router (no outside services).
 
-    external: the router's internet address from UPnP (None when UPnP failed, with error set)."""
+    external: the router's internet address from UPnP (None when UPnP failed, with error set).
+    vpn: [(ip, "Radmin VPN"), ...] virtual-LAN adapters on this PC (friends on the same virtual network use these)."""
     import upnp
     router = f"http://{gateway}" if gateway else "your router's admin page (the 'Default Gateway' in ipconfig)"
     lan = f"Players on your home network join with {_addr(lan_ip, port)} (or press Find LAN games)." if lan_ip \
         else "Players on your home network can press Find LAN games."
+    for ip, name in vpn or []:
+        lan += f"\nFriends on your {name} network join with {_addr(ip, port)} (or press Find LAN games)."
     fw = ("If Windows asks whether to allow network access, allow it on Private networks (if Windows calls your "
           "home network Public, switch it to Private in Settings > Network).")
     target = lan_ip or "this PC"
@@ -216,17 +219,18 @@ class Host:
         import upnp
         gateway = lan.default_gateway()
         lan_ip = lan.local_ip(gateway or "192.168.0.1")
+        vpn = lan.vpn_addresses()
         if os.environ.get("RRMP_NO_UPNP") == "1":
-            self.on_info(hosting_advice(self.port, lan_ip, gateway, error="UPnP skipped: RRMP_NO_UPNP=1"))
+            self.on_info(hosting_advice(self.port, lan_ip, gateway, error="UPnP skipped: RRMP_NO_UPNP=1", vpn=vpn))
             return
         self.on_info(f"Server running on port {self.port}. Asking your router to open it (UPnP)...")
         try:
             gw = upnp.find_gateway()
             gw.add_mapping(self.port, f"{APP} {self.port}")
             self.gateway, self.mapped = gw, True
-            self.on_info(hosting_advice(self.port, gw.local_ip(), gateway, external=gw.external_ip()))
+            self.on_info(hosting_advice(self.port, gw.local_ip(), gateway, external=gw.external_ip(), vpn=vpn))
         except Exception as e:  # noqa: BLE001 - shown to the user
-            self.on_info(hosting_advice(self.port, lan_ip, gateway, error=str(e) or type(e).__name__))
+            self.on_info(hosting_advice(self.port, lan_ip, gateway, error=str(e) or type(e).__name__, vpn=vpn))
 
     def stop(self) -> None:
         if self.gateway and self.mapped:
@@ -330,7 +334,9 @@ def main() -> None:
                 v_addr.set(_addr(found[0]["ip"], found[0]["port"]))
                 v_mode.set("join")
                 v_info.set("Found: " + ";  ".join(f"{f['name'] or f['ip']} at {_addr(f['ip'], f['port'])} "
-                                                   f"({f.get('players', 0)} online)" for f in found))
+                                                   f"({f.get('players', 0)} online"
+                                                   + (f", via {f['via']})" if f.get("via") else ")")
+                                                   for f in found))
             root.after(0, show)
         threading.Thread(target=work, daemon=True).start()
 

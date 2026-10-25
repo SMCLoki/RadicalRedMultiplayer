@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import select
 import socket
 import subprocess
 import sys
@@ -23,37 +24,82 @@ def probe() -> bytes:
     return LAN_MAGIC + b" " * (LAN_PROBE_SIZE - len(LAN_MAGIC))
 
 
+def local_ipv4s() -> list[str]:
+    """This PC's IPv4 addresses on every adapter (Wi-Fi, Ethernet, and virtual LANs such as Radmin VPN)."""
+    ips = set()
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ip = info[4][0]
+            if not ip.startswith(("127.", "169.254.", "0.")):
+                ips.add(ip)
+    except OSError:
+        pass
+    return sorted(ips)
+
+
+# Virtual-LAN tools friends use instead of opening a router port; each puts a network adapter in a known range
+VPN_RANGES = (("26.", "Radmin VPN"), ("25.", "Hamachi"))
+
+
+def vpn_name(ip: str) -> str | None:
+    return next((name for prefix, name in VPN_RANGES if ip.startswith(prefix)), None)
+
+
+def vpn_addresses() -> list[tuple[str, str]]:
+    """[(ip, "Radmin VPN"), ...] for this PC's virtual-LAN adapters."""
+    return [(ip, vpn_name(ip)) for ip in local_ipv4s() if vpn_name(ip)]
+
+
 def find_servers(timeout: float = 1.5, port: int = LAN_PORT,
-                 targets: tuple[str, ...] = ("255.255.255.255",)) -> list[dict]:
-    """Return [{"ip", "port", "players", "name", ...}] for every relay server that answered, sorted by ip."""
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                 targets: tuple[str, ...] = ("255.255.255.255",), all_adapters: bool = True) -> list[dict]:
+    """Return [{"ip", "port", "players", "name", ...}] for every relay server that answered, sorted by ip.
+
+    A plain broadcast only leaves through the main adapter, so with all_adapters the probe is also sent from each
+    local address: that reaches hosts on a virtual LAN (Radmin VPN, Hamachi, ZeroTier) too."""
+    socks = []
+    for bind_ip in [None] + (local_ipv4s() if all_adapters else []):
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        try:
+            if bind_ip:
+                s.bind((bind_ip, 0))
+        except OSError:
+            s.close()
+            continue
+        socks.append(s)
     found: dict[tuple[str, int], dict] = {}
     try:
-        for t in targets:
-            try:
-                sock.sendto(probe(), (t, port))
-            except OSError:
-                pass
+        for s in socks:
+            for t in targets:
+                try:
+                    s.sendto(probe(), (t, port))
+                except OSError:
+                    pass
         end = time.monotonic() + timeout
-        while (left := end - time.monotonic()) > 0:
-            sock.settimeout(left)
-            try:
-                data, (ip, _) = sock.recvfrom(LAN_PROBE_SIZE)
-            except (socket.timeout, OSError):
+        while socks and (left := end - time.monotonic()) > 0:
+            ready, _, _ = select.select(socks, [], [], left)
+            if not ready:
                 break
-            try:
-                info = json.loads(data)
-                tcp = int(info["port"])
-            except (ValueError, KeyError, TypeError):
-                continue
-            if not isinstance(info, dict) or info.get("rrmp") != 1 or not 0 < tcp < 65536:
-                continue
-            info["ip"], info["port"] = ip, tcp
-            info["name"] = re.sub(r"[^A-Za-z0-9_ -]", "", str(info.get("name", "")))[:32]
-            found[(ip, tcp)] = info
+            for s in ready:
+                try:
+                    data, (ip, _) = s.recvfrom(LAN_PROBE_SIZE)
+                except OSError:
+                    continue
+                try:
+                    info = json.loads(data)
+                    tcp = int(info["port"])
+                except (ValueError, KeyError, TypeError):
+                    continue
+                if not isinstance(info, dict) or info.get("rrmp") != 1 or not 0 < tcp < 65536:
+                    continue
+                info["ip"], info["port"] = ip, tcp
+                info["name"] = re.sub(r"[^A-Za-z0-9_ -]", "", str(info.get("name", "")))[:32]
+                if vpn_name(ip):
+                    info["via"] = vpn_name(ip)
+                found[(ip, tcp)] = info
     finally:
-        sock.close()
+        for s in socks:
+            s.close()
     return [found[k] for k in sorted(found)]
 
 

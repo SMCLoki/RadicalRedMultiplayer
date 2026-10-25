@@ -200,6 +200,14 @@ class LauncherHelperTests(unittest.TestCase):
         self.assertIn("http://10.0.0.1", off)
         self.assertIn("forward TCP port 8765 to 10.0.0.199", off)
 
+    def test_hosting_advice_lists_a_virtual_lan_the_host_already_uses(self):
+        # the user's choice when the router can't be opened: everyone joins one Radmin VPN network
+        text = rr_launcher.hosting_advice(8765, "10.0.0.199", "10.0.0.1", error="no UPnP router answered",
+                                          vpn=[("26.12.34.56", "Radmin VPN")])
+        self.assertIn("Friends on your Radmin VPN network join with 26.12.34.56", text)
+        self.assertIn("26.12.34.56:9000", rr_launcher.hosting_advice(9000, None, None, error="x",
+                                                                     vpn=[("26.12.34.56", "Radmin VPN")]))
+
 
 class LanTests(unittest.TestCase):
     def test_gateway_parsers(self):
@@ -232,6 +240,29 @@ class LanTests(unittest.TestCase):
         self.assertEqual(len(found), 1)
         self.assertEqual((found[0]["ip"], found[0]["port"], found[0]["name"], found[0]["players"]),
                          ("127.0.0.1", port, "Ash", 0))
+
+    def test_virtual_lan_ranges(self):
+        self.assertEqual(lan.vpn_name("26.4.5.6"), "Radmin VPN")
+        self.assertEqual(lan.vpn_name("25.1.2.3"), "Hamachi")
+        self.assertIsNone(lan.vpn_name("10.0.0.199"))
+        self.assertIsNone(lan.vpn_name("126.0.0.1"))
+        for ip in lan.local_ipv4s():
+            self.assertFalse(ip.startswith("127."), ip)
+
+    def test_discovery_probes_every_adapter(self):
+        # with all_adapters the probe also leaves from each local address; answers still dedupe to one per server
+        async def scenario():
+            with tempfile.TemporaryDirectory() as tmp:
+                server = rr_server.Server(rr_server.Config(port=0, data_dir=tmp, lan_port=0))
+                await server.start()
+                try:
+                    loop = asyncio.get_running_loop()
+                    return await loop.run_in_executor(None, lambda: lan.find_servers(
+                        timeout=0.5, port=server.cfg.lan_port, targets=("127.0.0.1",), all_adapters=True))
+                finally:
+                    await server.stop()
+        found = asyncio.run(scenario())
+        self.assertEqual([f["ip"] for f in found], ["127.0.0.1"])
 
     def test_probe_matches_server(self):
         self.assertEqual((lan.LAN_MAGIC, lan.LAN_PROBE_SIZE, lan.LAN_PORT),

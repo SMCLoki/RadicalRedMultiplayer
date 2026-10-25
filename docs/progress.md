@@ -613,3 +613,10 @@ host's PC; this removes the Tailscale suggestions and fills the gaps.
 - No Windows Firewall prompt showed for the host exe on this PC. It may still appear on other PCs.
 - Still open: a friend on another network (needs UPnP on or a port forward on the host's router, plus a second
   PC or a friend).
+- **Radmin VPN route (user can't enable UPnP; 2026-10-25):** Find LAN games now sends its probe from every local
+  adapter as well as the plain broadcast, which only leaves through the main one. That way hosts on a virtual LAN
+  (Radmin 26.x, Hamachi 25.x, ZeroTier) answer too. The host's advice lists its Radmin/Hamachi address when such an
+  adapter exists, and Found entries say "via Radmin VPN". Advice without a VPN adapter still names no outside
+  service (the cloud session's test is kept).
+  - Checked against a real server on 0.0.0.0:8773: it is found at 10.0.0.199 and appears once.
+  - Not checked yet: Radmin itself. It isn't installed here, and a second PC on Radmin is needed.

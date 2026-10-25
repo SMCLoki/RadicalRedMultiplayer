@@ -40,6 +40,17 @@ works host. If it says **double router**, the provider's modem sits in front of 
 bridge mode or forward the port on both. Players on your own network can always join, whatever the router does.
 The room code works like a password: pick an unusual one if you host over the internet.
 
+### Can't change the router? Use a virtual LAN (Radmin VPN)
+[Radmin VPN](https://www.radmin-vpn.com/) is a free Windows app (no account) that puts friends on one "fake LAN".
+Nobody touches a router.
+1. Everyone installs Radmin VPN. The host clicks **Network → Create network** (pick a name and password).
+   Friends click **Join network** with the same name and password.
+2. The host presses **Host a game → Play**. The launcher lists the host's Radmin address
+   (*"Friends on your Radmin VPN network join with 26.x.x.x"*).
+3. Friends choose **Join a friend** and press **Find LAN games**. It also searches the Radmin adapter, so it
+   should fill in the host. If it finds nothing, type the host's `26.x.x.x` address instead. Then press **Play**.
+Hamachi and ZeroTier work the same way.
+
 ## Manual setup (any mGBA 0.10+, or to run the server yourself)
 
 ### What you need

@@ -30,7 +30,10 @@ No game files are included: you need your own Radical Red ROM (FireRed v1.0 base
 4. One player chooses "Host a game" and presses Play. The launcher shows the address to give to friends
    (it asks your router to open port 8765 automatically; if that fails it tells you what to do).
    Windows may ask whether to allow RadicalRedOnline through the firewall: allow it on private networks.
-5. Everyone else chooses "Join a friend", types the host's address and presses Play.
+5. Everyone else chooses "Join a friend", types the host's address (or presses Find LAN games) and presses Play.
+
+Can't open the host's router? Everyone installs Radmin VPN (free, radmin-vpn.com) and joins the same Radmin
+network. The host's launcher then shows a 26.x.x.x address, and Find LAN games also searches Radmin.
 
 In the game: walk up to another player and press A to trade (TRADE CENTER) or battle (COLOSSEUM).
 In a battle, Run = give up. Chat from the box at the bottom of the launcher.
