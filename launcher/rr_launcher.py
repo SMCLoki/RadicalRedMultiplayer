@@ -473,6 +473,7 @@ def main() -> None:
         backup = backup_save(rom)
         prof = free_profile()
         env = dict(os.environ, RRMP_HOST=host_addr, RRMP_PORT=str(port), RRMP_ROOM=room, RRMP_NAME=name, RRMP_NOPANEL="1",
+                   RRMP_AUTOSAVE=str(Path(rom).with_suffix("")) + "_autosave",
                    RRMP_PROFILE=str(prof))
         (WORK / f"mp_status_{prof}.txt").unlink(missing_ok=True)
         state["game"] = subprocess.Popen([mgba, "--script", str(CLIENT / "rr_mp.lua"), rom], env=env,

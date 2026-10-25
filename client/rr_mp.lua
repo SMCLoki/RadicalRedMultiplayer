@@ -1094,7 +1094,10 @@ local function autosave()
   if S.trade and S.trade.stage then return end
   autosaveN = autosaveN % 3 + 1
   -- flags 2|8 = save data + RTC, no screenshot: taking the screenshot from the frame callback hung mGBA 0.11
-  pcall(emu.saveStateFile, emu, WORK .. "autosave_" .. PROFILE .. "_" .. autosaveN .. ".ss", 10)
+  -- next to the ROM when the launcher says where it is (RRMP_AUTOSAVE = "<rom folder>\<rom name>_autosave"),
+  -- otherwise in work/
+  local base = envSetting("autosave") or cfg.autosave_path or (WORK .. "autosave_" .. PROFILE)
+  pcall(emu.saveStateFile, emu, base .. "_" .. autosaveN .. ".ss", 10)
 end
 
 local function tick()
