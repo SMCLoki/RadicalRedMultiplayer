@@ -224,6 +224,9 @@ function _RRMP_VISUALS_NEW(env)
         end
       end
     end
+    -- maps with their own frame scripts are story rooms (new-game options, Mom's region question): leave them
+    -- untouched; puppets there appear on the next camera move instead
+    if #onframe > 0 then V.spawnReason = "map has story scripts"; return false end
     local ft = { string.pack("<I2I2I4", SPAWN_VAR, SPAWN_MAGIC, spawnAt) }
     for _, e in ipairs(onframe) do ft[#ft + 1] = e end
     ft[#ft + 1] = string.pack("<I2", 0)
