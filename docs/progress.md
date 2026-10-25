@@ -598,3 +598,18 @@ host's PC; this removes the Tailscale suggestions and fills the gaps.
   `forceEnd` relies on); the speed-tie test now expects sync (`test_speed_tie_stays_in_sync`) with a control
   (`tie_flip=0`, test-only switch in rr_battle.lua) that must still desync. All suites green: server 38,
   launcher 13, client, visuals, battle 9, talk 3.
+
+## 2026-10-25 - run 16 (local): cloud commit 3889430 checked on the real PC
+- Pulled 3889430: fully local hosting, LAN discovery, router advice, connection limits. All suites pass here
+  (server, launcher, soak). The Lua suites skip because lupa isn't installed locally. Rebuilt the .exe and zip
+  (33 MB).
+- **Packaged launcher, real network (no test overrides):**
+  - HostA hosted on port 8772. The server listened on 0.0.0.0:8772, logged "players on your network connect to
+    10.0.0.199 port 8772", and answered LAN discovery on UDP 8766.
+  - A second launcher (FriendB) pressed **Find LAN games**: "Found: HostA at 10.0.0.199:8772 (1 online)", and the
+    address was filled in.
+  - Play: the server logged the join from 10.0.0.199 (the Wi-Fi address, not loopback). Both saw each other in
+    room QX7PKG and the launcher chat arrived.
+- No Windows Firewall prompt showed for the host exe on this PC. It may still appear on other PCs.
+- Still open: a friend on another network (needs UPnP on or a port forward on the host's router, plus a second
+  PC or a friend).
