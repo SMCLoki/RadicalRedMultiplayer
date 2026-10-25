@@ -42,6 +42,9 @@ function _RRMP_BATTLE_NEW(env)
   local CB_INIT_BATTLE = tonumber(cfg.cb_init_battle or "") or 0x0800FD9D
   local CB_RETURN = tonumber(cfg.cb_return_to_field or "") or 0x080567DD
   local MAIN_SELECT = 0x08014041                     -- HandleTurnActionSelectionState
+  local MAIN_RUN_ACTIONS = tonumber(cfg.main_run_actions or "") or 0x080155C9  -- RunTurnActionsFunctions
+  local PLAYER_IDLE = tonumber(cfg.player_run_cmd or "") or 0x0802E3B5  -- PlayerBufferRunCommand (battler 0 idle)
+  local CB_BATTLE = tonumber(cfg.cb_battle or "") or 0x08011101         -- BattleMainCB2
   local CMD_ACTION, CMD_MOVE, CMD_POKEMON, CMD_TWO, CMD_MON = 18, 20, 22, 33, 34
   local FLAGS = tonumber(cfg.pvp_flags or "") or (0x08 | 0x800)  -- TRAINER | EREADER_TRAINER
   local MON, BMON, BUF = 100, 0x58, 0x200
@@ -502,6 +505,18 @@ function _RRMP_BATTLE_NEW(env)
     return true
   end
 
+  -- The battle ended on the server (forfeit, disconnect) while this game waits in the action menu, where the game
+  -- never checks gBattleOutcome. Hand battler 0 back to its idle controller and run the turn-actions step: it sees
+  -- the outcome and plays the game's own win/lose ending (real run 14: both games sat in the menu after a Run).
+  local function forceEnd(c)
+    if r8(A.outcome) == 0 or r32(A.mainFunc) ~= MAIN_SELECT or r32(A.gMain + 4) ~= CB_BATTLE then return end
+    w32(A.controllerFuncs, PLAYER_IDLE)
+    w32(A.execFlags, 0)
+    w32(A.mainFunc, MAIN_RUN_ACTIONS)
+    c.forcedEnd = true
+    log("battle: ending the battle from the action menu")
+  end
+
   function E.tick(frame)
     local c = E.cur
     if not c then return end
@@ -513,6 +528,7 @@ function _RRMP_BATTLE_NEW(env)
     elseif c.phase == "battle" or c.phase == "ending" then
       if r32(A.battleFlags) ~= 0 then
         battleFrame(c)
+        if c.phase == "ending" and not c.forcedEnd then forceEnd(c) end
         c.seenBattle = true
       elseif c.seenBattle and r32(A.gMain + 4) == CB_OVERWORLD then
         restoreAll(c)

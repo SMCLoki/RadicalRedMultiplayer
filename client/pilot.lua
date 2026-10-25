@@ -29,6 +29,7 @@ local function keyMask(spec)
   return mask
 end
 
+local luaLoad = load   -- keep Lua's load(): the pilot defines its own load() below
 local function load()
   local f = io.open(DIR .. (PILOT_FILE or "pilot.txt"), "r")
   if not f then return end
@@ -92,7 +93,7 @@ _PILOT_CB = callbacks:add("frame", function()
       elseif cur.op == "DUMP" then dump(cur.a); cur = nil
       elseif cur.op == "EXEC" then
         -- run one line of Lua (e.g. mp.battle("Player2")) without typing into the scripting console
-        local fn, err = load(cur.code, "exec", "t", _ENV)   -- mGBA gives each script its own environment (emu, mp...)
+        local fn, err = luaLoad(cur.code, "exec", "t", _ENV)   -- mGBA gives each script its own environment (emu, mp...)
         local ok, res = false, err
         if fn then ok, res = pcall(fn) end
         local f = io.open(DIR .. (PILOT_FILE or "pilot.txt"):gsub("%.txt$", "") .. "_exec.txt", "ab")

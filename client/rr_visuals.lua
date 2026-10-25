@@ -72,6 +72,8 @@ function _RRMP_VISUALS_NEW(env)
   local function headerOk(hdr, sb1)
     local ev = emu:read32(hdr + 4)
     if V.fake and ev == V.fake then return true end
+    -- patched by an earlier run of this script (Scripting > Reset, save state): check the original MapEvents
+    if ev == sb1 + SB1_TEMPLATES + FAKE_SLOT * TPL then ev = emu:read32(ev + 0x14) end
     if not isRom(emu:read32(hdr)) or not isRom(ev) then return false end
     local count = emu:read8(ev)
     if count > 64 then return false end

@@ -505,3 +505,21 @@ Beta checklist sections 1-3 pass on one PC. Open: section 4 (two PCs via Tailsca
 - pilot EXEC still returns `false nil` in the real emulator even with load(..., _ENV) - not working yet.
 - Still open: player-pressed Z-Move (needs EXEC or the console to give item 580 = Normalium Z), talk after
   emu:reset(), stale box after a battle, two-PC test.
+
+## 2026-10-24 - real mGBA run 14 (local): auto-spawn and Run = forfeit
+- **Auto-spawn every 1.6 s: WORKS.** Window 1 stood still while Player2 left and re-entered Oak's lab. The ON_FRAME
+  script (trigger VAR_TEMP_F) ran `addobject 0x70`, and Player2 appeared ("1 on this map, 1 drawn") and moved
+  (walked up 3 tiles) without window 1 moving.
+- **Run = forfeit:** the first try sent the forfeit (you lose / YOU WIN), but both games stayed in the action menu,
+  because the game never checks gBattleOutcome there. Fix: when the server has ended the battle and the game sits in
+  HandleTurnActionSelectionState (0x08014041), the engine does the following. Re-tested after a reload:
+  - set battler 0's controller to PlayerBufferRunCommand (0x0802E3B5, found by matching the opponent's 0x08035A99);
+  - clear gBattleControllerExecFlags;
+  - jump gBattleMainFunc to RunTurnActionsFunctions (0x080155C9). The game then plays its own "Player defeated"
+    ending.
+  - Result: the winner ended straight away, the runner after its "no running" text. Both returned to the map with
+    party/money/options restored and the other player drawn (no stale box after the battle).
+- visuals: reloading the script while the map was still patched turned visuals off ("gMapHeader does not match").
+  headerOk now follows the original MapEvents pointer saved in the fake header.
+- pilot EXEC fixed: pilot.lua's own `load()` hid Lua's `load`. `EXEC mp.battle("Player2")` / `EXEC mp.fight()`
+  return `true nil` and start the battle.
