@@ -13,13 +13,32 @@ Status: alpha, tested in real mGBA on one PC (see `docs/progress.md`).
    unzip it and double-click **RadicalRedOnline.exe**. mGBA is included (a development build, which can load the
    multiplayer script by itself).
 2. **Browse...** to your Radical Red ROM, type your name and a room code.
-3. **One player hosts** (peer-to-peer, no server to rent): choose *Host a game* and press **Play**. The launcher runs
-   the relay server on that PC, asks the router to open port 8765 (UPnP) and shows the address friends should use.
-   If UPnP is off on the router it explains the alternatives (forward TCP 8765, or use Tailscale).
-4. **Friends** choose *Join a friend*, type the host's address and press **Play**.
+3. **One player hosts** on their own PC (no server to rent, no account, no VPN or other outside service): choose
+   *Host a game* and press **Play**. The launcher runs the relay server on that PC, asks the router to open port
+   8765 (UPnP) and shows the address friends should use. If Windows asks about network access, allow it on
+   **Private** networks.
+4. **Friends** choose *Join a friend*, type the host's address and press **Play**. On the same network (same house /
+   Wi-Fi) just press **Find LAN games** instead of typing anything.
 5. The launcher shows who is online and has a chat box. Your `.sav` is backed up to `work\save_backups` on every Play.
 
 Everyone in a room must use the same ROM (the launcher shows its CRC32 to compare).
+
+### Playing over the internet: opening your router (host only, once)
+Friends outside your home reach the host PC through the host's own router. The launcher tries to do this
+automatically (UPnP). If it says *"Your router did not open the port automatically"*:
+1. Open the router's admin page shown in the message (often `http://192.168.1.1`, `http://192.168.0.1` or
+   `http://10.0.0.1`; some providers only offer their router app for this) and log in.
+2. Either **turn on UPnP** (often under *Advanced*) and press **Retry router** in the launcher, or add a **port
+   forward**: TCP port **8765** to the host PC's address (the launcher shows it, e.g. `10.0.0.199`). Reserve that
+   address for the PC in the router's DHCP settings so it doesn't change.
+3. Give friends your public address: the launcher shows it when UPnP works; otherwise it is on the router's
+   status page ("WAN IP" / "Internet IP").
+
+If the launcher says **carrier-grade NAT**, your internet provider doesn't give you your own internet address and
+nobody can connect in: ask the provider for a public IPv4 address (often free), or let a friend whose connection
+works host. If it says **double router**, the provider's modem sits in front of your router: put the modem in
+bridge mode or forward the port on both. Players on your own network can always join, whatever the router does.
+The room code works like a password: pick an unusual one if you host over the internet.
 
 ## Manual setup (any mGBA 0.10+, or to run the server yourself)
 
@@ -38,10 +57,9 @@ Make a folder called `work` inside this folder (if it doesn't already exist) and
 Double-click **`start_server.bat`**. A black window opens and says `listening on 127.0.0.1:8765`.
 Leave it open while you play.
 - **Playing on one PC** (testing): nothing else to do.
-- **Playing with friends over the internet**: the easiest way is a free VPN like
-  [Tailscale](https://tailscale.com/download). Everyone installs it and joins the host's network. The host
-  then runs `start_server.bat --host 0.0.0.0` and tells friends their Tailscale IP (looks like `100.x.y.z`).
-  (Advanced: forward TCP port 8765 on your router instead.)
+- **Playing with other PCs**: run `start_server.bat --host 0.0.0.0`. The window prints the address players on your
+  network use (`players on your network connect to 192.168.x.y`). For friends over the internet, open TCP port
+  8765 on your router as described in *Playing over the internet* above and give them your public address.
 
 ### Step 3: start the game and the script (every player)
 1. Double-click **`start_client.bat`** (or open `work\rr.gba` in mGBA yourself). Load your save.
@@ -52,7 +70,7 @@ Leave it open while you play.
 ### Step 4: settings (name, room, server address)
 The first run creates `work\mp_config.txt`. Open it with Notepad:
 ```
-host=127.0.0.1     <- the server's address (friends: the host's Tailscale IP)
+host=127.0.0.1     <- the server's address (friends: the host's LAN or public address)
 port=8765
 room=LOBBY         <- everyone who wants to play together uses the same room code
 ```
@@ -90,7 +108,9 @@ Each window automatically gets its own player profile (`Player1`, `Player2`, …
 
 ## Troubleshooting
 - **Panel says `connect failed`**: is the server window open? Is `host` in `mp_config.txt` right?
-  Friends: are you all on Tailscale?
+  Friends over the internet: is the port open on the host's router (see *Playing over the internet*)? Did the
+  host allow the Windows firewall prompt? On the same network, try the host's LAN address first.
+- **`server_busy`**: the host has too many connections from your address (12) or in total (64).
 - **`game_mismatch`**: someone in the room uses a different ROM version.
 - **`room_full`**: rooms hold 8 players; use another room code.
 - The emulator must not be paused: a paused game drops out after 10 seconds and rejoins when unpaused.

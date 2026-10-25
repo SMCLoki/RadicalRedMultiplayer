@@ -67,6 +67,6 @@ Follow `docs/phase4_battle.md`. Network side is ready; implement `M.engine`.
 
 ## 5. Phase 5/6 polish
 - [ ] Time a non-programmer walkthrough of README.md (goal < 10 min).
-- [ ] 8 clients: two PCs × 4 mGBA windows (profiles 1-4) or friends via Tailscale; play for 2 h with random
+- [ ] 8 clients: two PCs × 4 mGBA windows (profiles 1-4) or friends joining through the host's router (UPnP / port forward); play for 2 h with random
       disconnects (`server/soak.py` already covers the server side for 8 bots).
 - [ ] Optional: species-name table for the panel (RR species ids differ from vanilla; read names from ROM).

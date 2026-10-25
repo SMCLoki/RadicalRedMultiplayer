@@ -82,12 +82,12 @@ Each puppet's template script pointer points at a shared event script in templat
 maps need <= 47 own objects). rr_visuals.lua rewrites it every frame for the puppet the player is facing, never
 while a script runs (player object frozen). `rr_mp.lua` (M.buildTalkScript) assembles it from FireRed opcodes:
 `lock, faceplayer, setvar 0x8004/0x8005/0x8007, message+waitmessage, multichoice 0 0 39 0` (TRADE CENTER /
-COLOSSEUM / EXIT) or `yesnobox 20 8`, `special 160` (ChoosePartyMon -> 0x8004) + `waitstate`,
+COLOSSEUM / EXIT) or `yesnobox 20 8`, `special 159` (ChoosePartyMon -> 0x8004; 160 hung in real run 11) + `waitstate`,
 `setvar 0x8006 0x4D50` (done marker), `closemessage, release, end`. The client polls 0x8006 and acts on
 0x8007 (question), 0x8005 (answer), 0x8004 (party slot), using gSpecialVar_LastTalked to find the player.
 Questions: menu / incoming trade (shows their species via bufferspeciesname) / incoming challenge / trade
 preview ("X offers A for your B. Trade?") / waiting (cancel?) / busy. Overrides: `menu_list`,
 `special_choose_party`, `talk_menu=0` to turn it off. Tested with `tools/fake_script.py` (an interpreter for these
-opcodes) in `tests/test_talk.py`; not yet run in the real game - check that the menu and party screen open and
-that RR kept menu 39 and special 160.
+opcodes) in `tests/test_talk.py`. Verified in the real game (runs 10-11): the menu and party screen open, and
+RR kept menu 39; ChoosePartyMon is special 159 (160 hung).
 

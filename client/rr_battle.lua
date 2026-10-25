@@ -188,7 +188,7 @@ function _RRMP_BATTLE_NEW(env)
     if r32(A.execFlags) == 0 then
       local seed = logicSeed(c, rid, main, instr, c.rngOcc)
       local seed2 = seed ~ 0x5EED2222
-      if main == TURN_ORDER and c.b.side == 1 then
+      if main == TURN_ORDER and c.b.side == 1 and cfg.tie_flip ~= "0" then   -- tie_flip=0: test control only
         -- Speed ties are decided by the first Random() & 1 of the turn-order step, but each game is battler 0 for
         -- its own player, so the same bit would let a different player move first on each machine (real mGBA run
         -- 11). On side 1, start from the seed whose first output has bit 0 flipped: the mirrored battler wins the

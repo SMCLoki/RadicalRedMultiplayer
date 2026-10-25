@@ -40,7 +40,12 @@ between battles (`compare_traces.py` reads the first battle in each file). Recor
 - Save, reset, reload after a trade: the traded Pokémon is still there.
 
 ## 4. Two PCs (the real target)
-- Second PC (or friend) via Tailscale: `start_server.bat --host 0.0.0.0` on the host, `mp.connect("100.x.y.z")` on
-  the other. Repeat a trade and one battle.
+- Same network: host presses Host a game + Play in the launcher (allow the Windows firewall prompt on Private
+  networks); the second PC presses *Find LAN games* (or types the address the host's launcher shows) and Play.
+  Repeat a trade and one battle.
+- Over the internet (no outside services): the host's router must let TCP 8765 in, by UPnP (launcher does it;
+  *Retry router* after turning UPnP on) or a manual port forward to the host PC's LAN address. The friend joins
+  with the public address the launcher shows (or the one on the router's status page). If the launcher reports
+  carrier-grade NAT or a double router, follow its text.
 
 When 1-3 pass, the beta is ready to hand to friends (README quick start).

@@ -56,7 +56,7 @@ def main() -> None:
     dist = ROOT / "dist"
     subprocess.run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--onefile", "--windowed",
                     "--name", "RadicalRedOnline", "--paths", str(ROOT / "launcher"), "--paths", str(ROOT / "server"),
-                    "--hidden-import", "rr_server", "--hidden-import", "upnp",
+                    "--hidden-import", "rr_server", "--hidden-import", "upnp", "--hidden-import", "lan",
                     "--distpath", str(build / "exe"), "--workpath", str(build / "work"), "--specpath", str(build),
                     str(ROOT / "launcher" / "rr_launcher.py")], check=True)
 

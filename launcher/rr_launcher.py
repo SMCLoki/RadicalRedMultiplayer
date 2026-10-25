@@ -1,7 +1,8 @@
 """Radical Red Online launcher: pick your ROM, Host or Join, press Play.
 
 - Host runs the relay server on this PC (port 8765 by default) and asks the router to forward the port (UPnP).
-  Friends Join with the address the launcher shows.
+  Friends Join with the address the launcher shows; players on the same network can press Find LAN games.
+  Everything runs on the players' own PCs and router: no outside server, account or VPN.
 - Play starts mGBA (a build with --script, i.e. 0.11 / development builds) with client/rr_mp.lua already loaded
   and passes name, room and server address in RRMP_* environment variables.
 - The window then shows the game's live status (work/mp_status_<profile>.txt) and has a chat box
@@ -145,17 +146,53 @@ def clean_line(text: str) -> str:
 # ------------------------------------------------------------------------------------------------
 # hosting: relay server subprocess + UPnP
 
-def server_command(port: int) -> list[str]:
+def server_command(port: int, lan_name: str = "") -> list[str]:
     # RRMP_BIND=127.0.0.1 keeps a test host on this PC only
     args = ["--run-server", "--host", os.environ.get("RRMP_BIND", "0.0.0.0"), "--port", str(port), "--data-dir", str(WORK / "server_data")]
+    if lan_name:
+        args += ["--lan-name", lan_name]
     if FROZEN:
         return [sys.executable, *args]
     return [sys.executable, str(Path(__file__).resolve()), *args]
 
 
+def _addr(ip: str, port: int) -> str:
+    return ip if port == DEFAULT_PORT else f"{ip}:{port}"
+
+
+def hosting_advice(port: int, lan_ip: str | None, gateway: str | None, external: str | None = None,
+                   error: str | None = None) -> str:
+    """What the host should tell friends, using only their own PC and router (no outside services).
+
+    external: the router's internet address from UPnP (None when UPnP failed, with error set)."""
+    import upnp
+    router = f"http://{gateway}" if gateway else "your router's admin page (the 'Default Gateway' in ipconfig)"
+    lan = f"Players on your home network join with {_addr(lan_ip, port)} (or press Find LAN games)." if lan_ip \
+        else "Players on your home network can press Find LAN games."
+    fw = ("If Windows asks whether to allow network access, allow it on Private networks (if Windows calls your "
+          "home network Public, switch it to Private in Settings > Network).")
+    target = lan_ip or "this PC"
+    if error is None and external and not upnp.is_private(external):
+        return f"Friends on the internet join with:  {_addr(external, port)}\n{lan} {fw}"
+    if error is None:
+        if external and external.startswith("100.") and 64 <= int(external.split(".")[1]) < 128:
+            why = (f"Your internet provider shares one internet address between customers (carrier-grade NAT, "
+                   f"router reports {external}), so nobody outside can connect in. Ask your provider for a public "
+                   f"IPv4 address (often free on request), or let a friend with a normal connection host.")
+        else:
+            why = (f"Your router sits behind another router or modem (it reports the private address "
+                   f"{external or 'unknown'}). Put the provider's modem in bridge mode, or forward TCP {port} on "
+                   f"that outer device to {external or 'your router'} as well.")
+        return f"Port opened on your router, but friends can't reach it yet. {why}\n{lan} {fw}"
+    return (f"Your router did not open the port automatically ({error}). To let friends in over the internet, "
+            f"open {router} and either turn on UPnP (then press Retry router), or forward TCP port {port} to "
+            f"{target} (give this PC a reserved address there so it doesn't change). Your public address, which "
+            f"friends type, is on the router's status page.\n{lan} {fw}")
+
+
 class Host:
-    def __init__(self, port: int, on_info):
-        self.port, self.on_info = port, on_info
+    def __init__(self, port: int, on_info, lan_name: str = ""):
+        self.port, self.on_info, self.lan_name = port, on_info, lan_name
         self.proc: subprocess.Popen | None = None
         self.gateway = None
         self.mapped = False
@@ -164,44 +201,32 @@ class Host:
     def start(self) -> None:
         WORK.mkdir(parents=True, exist_ok=True)
         self.log = open(WORK / "host_server.log", "ab")
-        self.proc = subprocess.Popen(server_command(self.port), stdout=self.log, stderr=subprocess.STDOUT,
-                                     creationflags=NO_WINDOW, cwd=str(BASE))
+        self.proc = subprocess.Popen(server_command(self.port, self.lan_name), stdout=self.log,
+                                     stderr=subprocess.STDOUT, creationflags=NO_WINDOW, cwd=str(BASE))
+        self.retry_router()
+
+    def retry_router(self) -> None:
         threading.Thread(target=self._open_port, daemon=True).start()
 
     def alive(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
 
     def _open_port(self) -> None:
+        import lan
         import upnp
+        gateway = lan.default_gateway()
+        lan_ip = lan.local_ip(gateway or "192.168.0.1")
         if os.environ.get("RRMP_NO_UPNP") == "1":
-            self.on_info(f"Server running on port {self.port} (UPnP skipped: RRMP_NO_UPNP=1).")
+            self.on_info(hosting_advice(self.port, lan_ip, gateway, error="UPnP skipped: RRMP_NO_UPNP=1"))
             return
         self.on_info(f"Server running on port {self.port}. Asking your router to open it (UPnP)...")
         try:
             gw = upnp.find_gateway()
             gw.add_mapping(self.port, f"{APP} {self.port}")
             self.gateway, self.mapped = gw, True
-            ext = gw.external_ip()
-            if not ext or upnp.is_private(ext):
-                self.on_info(f"Port opened, but your router's internet address ({ext or 'unknown'}) is not public "
-                             "(carrier-grade NAT / double router). Friends can't reach you directly: use Tailscale "
-                             "and share your Tailscale IP instead.")
-            else:
-                self.on_info(f"Friends join with:  {ext}:{self.port}" if self.port != DEFAULT_PORT
-                             else f"Friends join with:  {ext}")
+            self.on_info(hosting_advice(self.port, gw.local_ip(), gateway, external=gw.external_ip()))
         except Exception as e:  # noqa: BLE001 - shown to the user
-            local = "this PC's address"
-            try:
-                import socket
-                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                s.connect(("8.8.8.8", 53))   # no packet is sent; picks the outgoing interface
-                local = s.getsockname()[0]
-                s.close()
-            except OSError:
-                pass
-            self.on_info(f"Could not open the port automatically ({e}). Forward TCP port {self.port} on your router "
-                         f"to {local}, then share your public IP; or use Tailscale and share your Tailscale IP. "
-                         f"Players on your home network can join with {local}.")
+            self.on_info(hosting_advice(self.port, lan_ip, gateway, error=str(e) or type(e).__name__))
 
     def stop(self) -> None:
         if self.gateway and self.mapped:
@@ -290,8 +315,34 @@ def main() -> None:
     ttk.Radiobutton(mode, text="Host a game", variable=v_mode, value="host").grid(row=1, column=0, sticky="w")
     ttk.Label(mode, text="port").grid(row=1, column=1, sticky="e", padx=(12, 4))
     ttk.Entry(mode, textvariable=v_port, width=7).grid(row=1, column=2, sticky="w")
-    ttk.Label(mode, textvariable=v_info, wraplength=500, foreground="#0a5").grid(
-        row=2, column=0, columnspan=3, sticky="w", pady=(6, 0))
+
+    def find_lan():
+        import lan
+        v_info.set("Looking for games on your network...")
+
+        def work():
+            found = lan.find_servers()
+            def show():
+                if not found:
+                    v_info.set("No game found on your network. Is the host's launcher running, and did they allow "
+                               "it through the Windows firewall?")
+                    return
+                v_addr.set(_addr(found[0]["ip"], found[0]["port"]))
+                v_mode.set("join")
+                v_info.set("Found: " + ";  ".join(f"{f['name'] or f['ip']} at {_addr(f['ip'], f['port'])} "
+                                                   f"({f.get('players', 0)} online)" for f in found))
+            root.after(0, show)
+        threading.Thread(target=work, daemon=True).start()
+
+    def retry_router():
+        if state["host"] is not None and state["host"].alive():
+            state["host"].retry_router()
+        else:
+            v_info.set("Start hosting first (Host a game, then Play).")
+    ttk.Button(mode, text="Find LAN games", command=find_lan).grid(row=0, column=3, padx=(6, 0))
+    ttk.Button(mode, text="Retry router", command=retry_router).grid(row=1, column=3, padx=(6, 0))
+    ttk.Label(mode, textvariable=v_info, wraplength=520, foreground="#0a5").grid(
+        row=2, column=0, columnspan=4, sticky="w", pady=(6, 0))
 
     play = ttk.Button(frm, text="Play")
     play.grid(row=6, column=0, columnspan=3, sticky="ew")
@@ -391,7 +442,7 @@ def main() -> None:
 
         play.configure(state="disabled")
         if v_mode.get() == "host" and (state["host"] is None or not state["host"].alive()):
-            state["host"] = Host(port, info)
+            state["host"] = Host(port, info, name)
             state["host"].start()
             set_status("Starting the server...")
             # the game does not retry a refused connection, so wait until the server accepts (the .exe can

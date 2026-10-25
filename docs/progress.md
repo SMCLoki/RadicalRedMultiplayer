@@ -570,3 +570,31 @@ Beta checklist sections 1-3 pass on one PC. Open: section 4 (two PCs via Tailsca
   10.0.0.199, or use Tailscale; LAN players can join 10.0.0.199.
   Next options: the user turns UPnP on in the gateway settings (then re-test), forwards the port by hand, or
   uses Tailscale. A cross-network test still needs a second PC or a friend.
+
+## 2026-10-25 (cloud): fully local hosting, no outside services (user request)
+The user wants a fully local option: no rented relay, no VPN, no third-party service. Hosting already ran on the
+host's PC; this removes the Tailscale suggestions and fills the gaps.
+- Launcher: `hosting_advice()` builds every message the host sees, from the host's own PC and router only:
+  UPnP worked (public address to share), carrier-grade NAT (ask the provider for a public IPv4 or let another
+  friend host), double router (bridge mode or forward on both), UPnP off (router admin page at the detected default
+  gateway, e.g. http://10.0.0.1: turn UPnP on and press the new **Retry router** button, or forward TCP 8765 to the
+  shown LAN address with a DHCP reservation; public address from the router's status page). LAN address always
+  shown; Windows firewall note (allow on Private networks).
+- LAN discovery: the server answers UDP 8766 broadcasts (`RRMP-DISCOVER` padded to 256 bytes; reply is never larger,
+  no room codes) when it listens on a non-loopback address; launcher button **Find LAN games** fills in the
+  address (`launcher/lan.py`). `start_server.bat --host 0.0.0.0` prints the LAN address players should use.
+- Server: `--max-conns` (64) and `--max-per-ip` (12, this PC's own windows exempt) since a hosted server is
+  reachable from the internet; refused sockets get fatal `server_busy`.
+- Tests: server 38 (3 new: per-IP, total, loopback exemption), launcher 13 (4 new: advice text has no outside
+  services, gateway parsing for `route print` and /proc/net/route, discovery against a running server incl. the
+  no-amplification rule). Broadcast discovery checked here on a real interface.
+- For the local session: rebuild the .exe (`tools/build_launcher.py`, now bundles `lan`), then (1) Host + Find LAN
+  games on the same PC: the host should be found; (2) if a second PC is available, Find LAN games there; (3) with
+  the user's OK, turn UPnP on at http://10.0.0.1 (Xfinity gateways may only offer this in their app) or add a port
+  forward for TCP 8765 to 10.0.0.199, press Retry router and note the message.
+- Test doubles caught up with the local session's verified changes (battle and talk suites had been red since
+  e557f13/75ed2d8 because the fakes were stale): `fake_script` uses special 159; `fake_battle` uses the real
+  RunTurnActionsFunctions address (0x080155C9) and ends the battle there when gBattleOutcome is set (the path
+  `forceEnd` relies on); the speed-tie test now expects sync (`test_speed_tie_stays_in_sync`) with a control
+  (`tie_flip=0`, test-only switch in rr_battle.lua) that must still desync. All suites green: server 38,
+  launcher 13, client, visuals, battle 9, talk 3.

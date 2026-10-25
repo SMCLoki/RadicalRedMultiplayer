@@ -2,7 +2,7 @@
 
 Used by the launcher's Host button so friends can reach the relay server without manual port forwarding.
 Everything here is best effort: routers with UPnP turned off simply don't answer, and the launcher falls back to
-showing port-forward / Tailscale instructions.
+showing how to turn UPnP on or forward the port by hand in the router's own settings.
 """
 from __future__ import annotations
 

@@ -8,9 +8,28 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "launcher"))
+sys.path.insert(0, str(ROOT / "server"))
 
+import asyncio  # noqa: E402
+import lan  # noqa: E402
 import rr_launcher  # noqa: E402
+import rr_server  # noqa: E402
 import upnp  # noqa: E402
+
+ROUTE_PRINT = """===========================================================================
+IPv4 Route Table
+===========================================================================
+Active Routes:
+Network Destination        Netmask          Gateway       Interface  Metric
+          0.0.0.0          0.0.0.0         10.0.0.1     10.0.0.199     35
+          0.0.0.0          0.0.0.0      192.168.56.1  192.168.56.10    281
+        127.0.0.0        255.0.0.0         On-link         127.0.0.1    331
+===========================================================================
+"""
+PROC_ROUTE = """Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask
+eth0\t00000000\t0101A8C0\t0003\t0\t0\t100\t00000000
+eth0\t0001A8C0\t00000000\t0001\t0\t0\t100\t00FFFFFF
+"""
 
 DESC = """<?xml version="1.0"?>
 <root xmlns="urn:schemas-upnp-org:device-1-0"><device>
@@ -154,10 +173,70 @@ class LauncherHelperTests(unittest.TestCase):
                 rr_launcher.WORK = old_work
 
     def test_server_command_runs_this_file(self):
-        cmd = rr_launcher.server_command(9001)
+        cmd = rr_launcher.server_command(9001, "Ash")
         self.assertIn("--run-server", cmd)
         self.assertEqual(cmd[cmd.index("--port") + 1], "9001")
         self.assertEqual(cmd[cmd.index("--host") + 1], "0.0.0.0")
+        self.assertEqual(cmd[cmd.index("--lan-name") + 1], "Ash")
+
+    def test_hosting_advice_is_fully_local(self):
+        cases = [
+            dict(external="203.0.113.7"),                    # UPnP worked, public address
+            dict(external="100.70.1.2"),                     # carrier-grade NAT
+            dict(external="192.168.0.20"),                   # double router
+            dict(error="no UPnP router answered"),           # UPnP off (the user's gateway, run 15)
+        ]
+        for kw in cases:
+            text = rr_launcher.hosting_advice(8765, "10.0.0.199", "10.0.0.1", **kw)
+            for word in ("tailscale", "vpn", "zerotier", "hamachi", "ngrok", "playit"):
+                self.assertNotIn(word, text.lower())
+            self.assertIn("10.0.0.199", text)                # LAN play is always offered
+        self.assertIn("join with:  203.0.113.7", rr_launcher.hosting_advice(8765, "10.0.0.199", "10.0.0.1",
+                                                                         external="203.0.113.7"))
+        self.assertIn("203.0.113.7:9000", rr_launcher.hosting_advice(9000, None, None, external="203.0.113.7"))
+        self.assertIn("carrier-grade NAT", rr_launcher.hosting_advice(8765, None, None, external="100.70.1.2"))
+        self.assertIn("bridge mode", rr_launcher.hosting_advice(8765, None, None, external="192.168.0.20"))
+        off = rr_launcher.hosting_advice(8765, "10.0.0.199", "10.0.0.1", error="no UPnP router answered")
+        self.assertIn("http://10.0.0.1", off)
+        self.assertIn("forward TCP port 8765 to 10.0.0.199", off)
+
+
+class LanTests(unittest.TestCase):
+    def test_gateway_parsers(self):
+        self.assertEqual(lan.parse_route_print(ROUTE_PRINT), "10.0.0.1")
+        self.assertIsNone(lan.parse_route_print("no routes here"))
+        self.assertEqual(lan.parse_proc_route(PROC_ROUTE), "192.168.1.1")
+
+    def test_discovery_finds_a_running_server(self):
+        async def scenario():
+            with tempfile.TemporaryDirectory() as tmp:
+                server = rr_server.Server(rr_server.Config(port=0, data_dir=tmp, lan_port=0))
+                server.host_name = "Ash"
+                await server.start()
+                try:
+                    loop = asyncio.get_running_loop()
+                    found = await loop.run_in_executor(None, lambda: lan.find_servers(
+                        timeout=0.5, port=server.cfg.lan_port, targets=("127.0.0.1",)))
+                    # a short probe gets no answer (the beacon never sends more than it receives)
+                    import socket
+                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    s.settimeout(0.3)
+                    s.sendto(lan.LAN_MAGIC, ("127.0.0.1", server.cfg.lan_port))
+                    with self.assertRaises(socket.timeout):
+                        s.recvfrom(512)
+                    s.close()
+                    return found, server.cfg.port
+                finally:
+                    await server.stop()
+        found, port = asyncio.run(scenario())
+        self.assertEqual(len(found), 1)
+        self.assertEqual((found[0]["ip"], found[0]["port"], found[0]["name"], found[0]["players"]),
+                         ("127.0.0.1", port, "Ash", 0))
+
+    def test_probe_matches_server(self):
+        self.assertEqual((lan.LAN_MAGIC, lan.LAN_PROBE_SIZE, lan.LAN_PORT),
+                         (rr_server.LAN_MAGIC, rr_server.LAN_PROBE_SIZE, rr_server.LAN_PORT))
+        self.assertEqual(len(lan.probe()), lan.LAN_PROBE_SIZE)
 
 
 if __name__ == "__main__":

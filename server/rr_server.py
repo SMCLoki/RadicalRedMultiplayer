@@ -7,6 +7,9 @@ trades (two-phase commit with a durable ledger) and lockstep PvP battles.
 
     python server/rr_server.py                 # localhost:8765
     python server/rr_server.py --host 0.0.0.0  # LAN / internet (open the port yourself)
+
+With --host other than loopback the server also answers LAN discovery broadcasts on UDP 8766
+(see docs/protocol.md), so players on the same network can find it without typing an address.
 """
 from __future__ import annotations
 
@@ -17,12 +20,16 @@ import logging
 import os
 import re
 import secrets
+import socket
 import struct
 import time
 from dataclasses import dataclass, field
 
 PROTOCOL_VERSION = 1
 MAX_LINE = 8192
+LAN_PORT = 8766
+LAN_MAGIC = b"RRMP-DISCOVER"
+LAN_PROBE_SIZE = 256   # probes are padded; the reply is never larger, so the beacon can't amplify traffic
 MAX_ROOM_HARD = 8
 ROOM_RE = re.compile(r"^[A-Za-z0-9_-]{1,16}$")
 UID_RE = re.compile(r"^[A-Za-z0-9]{8,32}$")
@@ -49,6 +56,43 @@ class Config:
     data_dir: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
     tick: float = 0.25
     max_write_buffer: int = 256 * 1024
+    max_conns: int = 64         # open sockets in total (a hosted server is reachable from the internet)
+    max_per_ip: int = 12        # open sockets per remote address
+    exempt_loopback: bool = True  # this PC's own game windows don't count towards max_per_ip
+    lan_port: int | None = None   # UDP port for LAN discovery replies (None = off)
+
+
+def _lan_ip() -> str | None:
+    """This PC's address on the home network (no packet is sent)."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("192.168.0.1", 9))
+        return s.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        s.close()
+
+
+class LanBeacon(asyncio.DatagramProtocol):
+    """Answers LAN discovery probes with the TCP port and player count (no room codes)."""
+
+    def __init__(self, server: "Server"):
+        self.server = server
+        self.transport = None
+
+    def connection_made(self, transport) -> None:
+        self.transport = transport
+
+    def datagram_received(self, data: bytes, addr) -> None:
+        if not data.startswith(LAN_MAGIC) or len(data) < LAN_PROBE_SIZE:
+            return
+        info = {"rrmp": PROTOCOL_VERSION, "port": self.server.cfg.port,
+                "players": sum(1 for c in self.server.conns if c.ready),
+                "max_room": self.server.cfg.max_room, "name": self.server.host_name}
+        reply = json.dumps(info, separators=(",", ":")).encode()
+        if len(reply) <= len(data):
+            self.transport.sendto(reply, addr)
 
 
 class ProtocolError(Exception):
@@ -186,6 +230,7 @@ class Conn:
         self.tokens = server.cfg.burst
         self.refill_at = now
         peer = writer.get_extra_info("peername")
+        self.ip = peer[0] if peer else "?"
         self.peer = f"{peer[0]}:{peer[1]}" if peer else "?"
 
     def send(self, msg: dict) -> None:
@@ -263,6 +308,8 @@ class Server:
         self._server: asyncio.base_events.Server | None = None
         self._janitor: asyncio.Task | None = None
         self.conns: set[Conn] = set()
+        self._beacon = None
+        self.host_name = re.sub(r"[^A-Za-z0-9_ -]", "", socket.gethostname())[:32]
         self._load_ledger()
 
     # -- lifecycle ---------------------------------------------------------
@@ -285,11 +332,27 @@ class Server:
         self._janitor = asyncio.create_task(self._janitor_loop())
         log.info("listening on %s:%d (protocol v%d, max %d per room)",
                  self.cfg.host, self.cfg.port, PROTOCOL_VERSION, self.cfg.max_room)
+        if self.cfg.host in ("0.0.0.0", "", "::"):
+            ip = _lan_ip()
+            if ip:
+                log.info("players on your network connect to %s port %d", ip, self.cfg.port)
+        if self.cfg.lan_port is not None:
+            try:
+                self._beacon, _ = await asyncio.get_running_loop().create_datagram_endpoint(
+                    lambda: LanBeacon(self), local_addr=(self.cfg.host, self.cfg.lan_port))
+                self.cfg.lan_port = self._beacon.get_extra_info("sockname")[1]
+                log.info("answering LAN discovery on UDP %d", self.cfg.lan_port)
+            except OSError as e:   # e.g. a second server on this PC; discovery is optional
+                log.warning("LAN discovery off (UDP %s: %s)", self.cfg.lan_port, e)
+                self._beacon = None
         return self.cfg.port
 
     async def stop(self) -> None:
         if self._janitor:
             self._janitor.cancel()
+        if self._beacon:
+            self._beacon.close()
+            self._beacon = None
         if self._server:
             self._server.close()
         for c in list(self.conns):
@@ -306,6 +369,15 @@ class Server:
 
     async def _handle(self, reader, writer) -> None:
         conn = Conn(self, reader, writer)
+        refusal = self._over_limit(conn)
+        if refusal:
+            log.warning("refused %s: %s", conn.peer, refusal)
+            self._fatal(conn, "server_busy", refusal)
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+            return
         self.conns.add(conn)
         try:
             while not conn.closed:
@@ -347,6 +419,15 @@ class Server:
                 await writer.wait_closed()
             except Exception:
                 pass
+
+    def _over_limit(self, conn: Conn) -> str | None:
+        if len(self.conns) >= self.cfg.max_conns:
+            return f"server has {self.cfg.max_conns} connections already"
+        if self.cfg.exempt_loopback and (conn.ip.startswith(("127.", "::ffff:127.")) or conn.ip == "::1"):
+            return None
+        if sum(1 for c in self.conns if c.ip == conn.ip) >= self.cfg.max_per_ip:
+            return f"too many connections from {conn.ip}"
+        return None
 
     def _fatal(self, conn: Conn, code: str, msg: str) -> None:
         conn.send({"t": "error", "code": code, "msg": msg, "fatal": True})
@@ -815,14 +896,24 @@ def main(argv=None) -> None:
                    help="address to listen on (127.0.0.1 = this PC only, 0.0.0.0 = everyone)")
     p.add_argument("--port", type=int, default=int(os.environ.get("RRMP_PORT", "8765")))
     p.add_argument("--max-room", type=int, default=8, help="players per room (1-8)")
+    p.add_argument("--max-conns", type=int, default=Config.max_conns, help="open connections in total")
+    p.add_argument("--max-per-ip", type=int, default=Config.max_per_ip,
+                   help="open connections per remote address (this PC is exempt)")
+    p.add_argument("--no-lan", action="store_true", help="don't answer LAN discovery broadcasts")
+    p.add_argument("--lan-name", default="", help="name shown to LAN players looking for games (default: PC name)")
     p.add_argument("--data-dir", default=Config.data_dir, help="where the trade ledger and battle log live")
     p.add_argument("--verbose", "-v", action="store_true")
     a = p.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if a.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
-    cfg = Config(host=a.host, port=a.port, max_room=a.max_room, data_dir=a.data_dir)
+    cfg = Config(host=a.host, port=a.port, max_room=a.max_room, data_dir=a.data_dir,
+                 max_conns=a.max_conns, max_per_ip=a.max_per_ip,
+                 lan_port=None if a.no_lan or a.host.startswith("127.") or a.host == "localhost" else LAN_PORT)
+    server = Server(cfg)
+    if a.lan_name:
+        server.host_name = re.sub(r"[^A-Za-z0-9_ -]", "", a.lan_name)[:32]
     try:
-        asyncio.run(Server(cfg).serve_forever())
+        asyncio.run(server.serve_forever())
     except KeyboardInterrupt:
         pass
 

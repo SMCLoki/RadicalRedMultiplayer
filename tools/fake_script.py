@@ -71,7 +71,7 @@ def run_script(gba, addr, answers, species_names=None, last_talked=None, max_ste
             setvar(0x800D, answers.get("yesno", 0))
         elif op == 0x25:                                # special
             sid = r(pc, 2); pc += 2
-            if sid == 160:                              # ChoosePartyMon
+            if sid == 159:                              # ChoosePartyMon (RR; real mGBA run 11)
                 setvar(0x8004, answers.get("slot", 0xFF))
         elif op == 0x7D:                                # bufferspeciesname
             idx, sp = r(pc, 1), r(pc + 1, 2); pc += 3

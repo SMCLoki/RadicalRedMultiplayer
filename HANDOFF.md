@@ -15,6 +15,11 @@ A cloud Claude session did the heavy lifting that doesn't need the emulator; you
 
 **Current focus: `docs/beta_checklist.md` - one real-mGBA pass to confirm the beta.**
 
+Hosting is fully local (user request 2026-10-25: no outside services, no VPN): the launcher hosts on the player's
+PC, opens the router port by UPnP or explains the manual port forward / CGNAT / double router, and finds games on
+the same network (*Find LAN games*, UDP 8766). The cloud session could not run the Tk window (no tkinter there):
+rebuild the .exe and try Host + Find LAN games first (progress.md, last entry).
+
 Status (2026-10-24, beta checklist sections 1-3 passed in real mGBA, see docs/progress.md runs 10-11): connecting,
 presence, player characters on the map across maps/warps, chat, trading by console and through the talk-to-player
 menu (incl. crash recovery and save/reset/reload), PvP battles fully in sync to a natural winner (faints,

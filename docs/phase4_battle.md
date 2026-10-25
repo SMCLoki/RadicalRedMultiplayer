@@ -60,7 +60,7 @@ gMapHeader.events whenever the game leaves the overworld, for the same reason.
 controllers, VBlank Random(), side-dependent animation lengths, faints and battle exit built from the decomp; with
 `rng_lock=0` it reproduces the run-5 desync, with the lock the same battle stays in sync): full 2v2 battle with a faint replacement -
 both games log the identical (mirrored) battle; switching on both sides; forfeit mid-battle ends both games;
-a speed tie is caught as a desync; party/money/option/e-reader slot restored and back on the map.
+a speed tie stays in sync (control without the side-1 flip: caught as a desync); party/money/option/e-reader slot restored and back on the map.
 
 **Verified in real mGBA (runs 10-11, 2026-10-24):** 7 PvP battles to a natural winner with no desync (faints and
 replacements on both sides, a voluntary switch, a 1-vs-2 team, an exact speed tie every turn). Fixes found in the real

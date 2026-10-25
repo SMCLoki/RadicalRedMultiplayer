@@ -199,17 +199,25 @@ class BattleTest(unittest.TestCase):
         # the AI runs (and leaves prediction side effects) only on the machine where that Pokémon is the opponent
         self.control({"controller_dummy": "0"})
 
-    def test_speed_tie_is_detected_as_desync(self):
-        # Battler-index tie breaks run mirrored on the two machines (docs/phase4_battle.md, "known limit"):
-        # the per-round state hash must catch it and both games must still end cleanly.
+    def test_speed_tie_stays_in_sync(self):
+        # Battler-index tie breaks run mirrored on the two machines; rr_battle flips the first random bit of the
+        # turn-order step on side 1 so the same player moves first in both games (e557f13, real mGBA run 11).
         a = self.client("Red", 5, [mon(1, 152, 50, hp=60)])
         b = self.client("Blue", 8, [mon(3, 4, 50, hp=60)])
         self.start(a, b)
         self.until(lambda: self.finished(a, b), msg="ended")
         res = list(self.srv.server.battle_log.read())[-1]
-        self.assertEqual(res["reason"], "desync")
+        self.assertEqual(res["reason"], "normal")
         for g in (a, b):
             self.assert_restored(g)
+
+    def test_control_speed_tie_without_flip(self):
+        # control: without the side-1 flip the mirrored tie break must still be caught by the round hash
+        a = self.client("Red", 5, [mon(1, 152, 50, hp=60)], extra={"tie_flip": "0"})
+        b = self.client("Blue", 8, [mon(3, 4, 50, hp=60)], extra={"tie_flip": "0"})
+        self.start(a, b)
+        self.until(lambda: self.finished(a, b), msg="ended")
+        self.assertEqual(list(self.srv.server.battle_log.read())[-1]["reason"], "desync")
 
 
 if __name__ == "__main__":

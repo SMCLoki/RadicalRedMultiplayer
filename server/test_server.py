@@ -226,6 +226,37 @@ class RateTests(ServerTest):
         self.assertEqual((await a.expect("error"))["code"], "rate_limited")
 
 
+class ConnLimitTests(ServerTest):
+    cfg_overrides = {"max_conns": 3, "max_per_ip": 2, "exempt_loopback": False}
+
+    async def refused(self):
+        c = await Client.connect(self.port, hello=False)
+        self.clients.append(c)
+        m = await c.expect("error")
+        self.assertEqual(m["code"], "server_busy")
+        self.assertTrue(await c.closed())
+
+    async def test_per_ip_limit(self):
+        await self.join("Red")
+        await self.join("Blue")
+        await self.refused()
+        await self.clients[0].close()
+        await asyncio.sleep(0.1)
+        await self.join("Green")   # a slot freed up
+
+    async def test_total_limit(self):
+        self.server.cfg.max_per_ip = 10
+        for n in ("A", "B", "C"):
+            await self.join(n)
+        await self.refused()
+
+    async def test_loopback_exempt_from_per_ip(self):
+        self.server.cfg.exempt_loopback = True
+        for n in ("A", "B", "C"):
+            await self.join(n)
+        await self.refused()       # the total limit still applies
+
+
 class RelayTests(ServerTest):
     async def test_state_relay_and_snapshot(self):
         a = await self.join("Red")

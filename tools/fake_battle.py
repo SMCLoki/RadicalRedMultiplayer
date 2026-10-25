@@ -39,7 +39,7 @@ BUFA, BUFB, MONS, COMM, OUTCOME = 0x02022BC4, 0x020233C4, 0x02023BE4, 0x02023E82
 CHOSEN_ACTION, RNG, EPARTY, ECOUNT, PPARTY, PCOUNT = 0x02023D7C, 0x03005000, 0x0202402C, 0x0202402A, 0x02024284, 0x02024029
 BS_PTR, BS_ADDR, SB1PTR, SB2PTR = 0x02023FE8, 0x02000010, 0x03005008, 0x0300500C
 CB_OVERWORLD, CB_INIT, CB_BATTLE = 0x080565B5, 0x0800FD9D, 0x08011101
-SEL, ORDER, RUN, END = 0x08014041, 0x080150A9, 0x080154A1, 0x08015A31
+SEL, ORDER, RUN, END = 0x08014041, 0x080150A9, 0x080155C9, 0x08015A31   # RUN = RunTurnActionsFunctions
 CHOOSEACTION, CHOOSEMOVE, CHOOSEPOKEMON, TWO, CHOSENMON, MOVEANIMATION = 18, 20, 22, 33, 34, 14
 SB_SIZE = 0x1000
 FUNCS, DUMMY, OPP_RUN, AI_GLOBAL, INTRCHECK = 0x03004FE0, 0x0802E311, 0x08035A99, 0x02023D50, 0x030030F0 + 0x1C
@@ -258,6 +258,9 @@ class FakeBattle:
         elif f == RUN:
             if self.r(EXEC, 4) & 3:
                 return                      # script waits while the controllers animate
+            if self.r(OUTCOME, 1):          # RunTurnActionsFunctions: gBattleOutcome != 0 -> B_ACTION_FINISHED
+                self.finish()               # (also how rr_battle ends a battle forfeited in the action menu)
+                return
             if self.order:
                 act = self.order.pop(0)
                 self.do_action(act)

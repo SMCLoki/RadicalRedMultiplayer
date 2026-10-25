@@ -23,6 +23,7 @@ Fatal errors are followed by the server closing the socket. Errors before `welco
 | `too_long` | yes | line > 8 KiB (relayed payloads: > 1 KiB, non-fatal) |
 | `rate_limited` | yes | more than 60 msg/s sustained (burst 120) |
 | `timeout` | yes | no hello within 10 s, or nothing received for 10 s |
+| `server_busy` | yes | sent instead of anything else on connect: the server already has `--max-conns` (64) sockets, or `--max-per-ip` (12) from that address (this PC's own windows are exempt) |
 | `bad_msg`, `bad_type`, `no_peer`, `busy`, `bad_mon`, `bad_team`, `bad_state`, `bad_turn`, `no_trade`, `no_battle` | no | request refused; client should roll back its local step |
 
 The Lua client does not auto-reconnect after `bad_version`, `bad_hello`, `room_full`, `game_mismatch`, `replaced`.
@@ -124,6 +125,15 @@ server → both: battle_result{bid,winner,reason[,turn,hashes|reported]}
   the current turn is idempotent; an action for the previous turn just replays its `battle_turn`.
 - Several battles can run at once in one room (e.g. 4 pairs in a full room). Results are logged to
   `server/data/battles.jsonl`.
+
+## LAN discovery (UDP, optional)
+When the server listens on a non-loopback address (`--host 0.0.0.0`, which the launcher's Host uses) it also binds
+UDP 8766 (`--no-lan` turns this off). A probe is the ASCII bytes `RRMP-DISCOVER` padded with spaces to 256 bytes,
+sent to the broadcast address 255.255.255.255:8766. The server answers the sender with one datagram, never larger
+than the probe (so it can't be used to amplify traffic): `{"rrmp":1,"port":8765,"players":3,"max_room":8,"name":"Ash"}`.
+`players` counts everyone online (room codes are not revealed); `name` is `--lan-name` or the PC name. Probes
+shorter than 256 bytes or without the prefix are ignored. The launcher's *Find LAN games* uses this
+(`launcher/lan.py`). Only the TCP port is opened on the router; UDP 8766 stays inside the home network.
 
 ## Versioning
 
