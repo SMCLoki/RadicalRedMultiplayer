@@ -296,6 +296,19 @@ def main() -> None:
             v_rom.set(p)
             check()
     ttk.Button(frm, text="Browse...", command=browse).grid(row=0, column=2)
+
+    def open_autosaves():
+        # autosaves sit next to the ROM (<rom>_autosave_1..3.ss); select the newest one in Explorer
+        rom = Path(v_rom.get().strip())
+        if not rom.parent.is_dir():
+            messagebox.showinfo(APP, "Pick your ROM first (Browse...). Autosaves are saved next to it.")
+            return
+        saves = sorted(rom.parent.glob(f"{rom.stem}_autosave_*.ss"), key=lambda p: p.stat().st_mtime)
+        if saves:
+            subprocess.Popen(["explorer", "/select,", str(saves[-1])])
+        else:
+            subprocess.Popen(["explorer", str(rom.parent)])
+    ttk.Button(frm, text="Autosaves", command=open_autosaves).grid(row=2, column=2, pady=(8, 0))
     ttk.Label(frm, textvariable=v_rominfo, foreground="#555").grid(row=1, column=1, columnspan=2, sticky="w", padx=6)
 
     def check():
