@@ -71,8 +71,15 @@ local CONFIG_HELP = [[# Radical Red Online settings. Edit, then type mp.reload()
 # name: your display name (max 12). Per-window overrides go in mp_config_<profile>.txt
 ]]
 
+-- The launcher passes its settings in the environment: RRMP_HOST, RRMP_PORT, RRMP_ROOM, RRMP_NAME, RRMP_PROFILE
+local function envSetting(key)
+  local ok, v = pcall(os.getenv, "RRMP_" .. key:upper())
+  if ok and v and v ~= "" then return v end
+end
+
 local function pickProfile()
   if RRMP_PROFILE then return tonumber(RRMP_PROFILE) end
+  if tonumber(envSetting("profile") or "") then return tonumber(envSetting("profile")) end
   local now = os.time()
   for n = 1, 8 do
     local t = tonumber(readFile(WORK .. "mp_lock_" .. n .. ".txt") or "")
@@ -87,6 +94,7 @@ local function touchLock() writeFile(WORK .. "mp_lock_" .. PROFILE .. ".txt", to
 touchLock()
 
 local cfg
+local envApplied = false
 local function loadConfig()
   cfg = { host = "127.0.0.1", port = "8765", room = "LOBBY", name = "Player" .. PROFILE, autoconnect = "1" }
   local shared = readFile(WORK .. "mp_config.txt")
@@ -96,6 +104,14 @@ local function loadConfig()
   parseConfig(shared, cfg)
   parseConfig(readFile(WORK .. "mp_config_" .. PROFILE .. ".txt"), cfg)
   if RRMP_CONFIG then for k, v in pairs(RRMP_CONFIG) do cfg[k] = tostring(v) end end
+  -- launcher settings win on the first load only, so mp.name() / mp.room() still work in the session
+  if not envApplied then
+    for _, k in ipairs({ "host", "port", "room", "name" }) do
+      local v = envSetting(k)
+      if v then cfg[k] = v end
+    end
+    envApplied = true
+  end
 end
 
 local function saveProfileSetting(key, value)
@@ -383,7 +399,8 @@ local function sampleState()
 end
 
 local function gameId()
-  local code = tostring(emu:getGameCode() or "GBA"):gsub("[^%w%-]", "")
+  -- mGBA 0.10 says "AGB-BPRE", 0.11 says "BPRE": keep only the 4-letter game code so mixed versions can play
+  local code = tostring(emu:getGameCode() or "GBA"):gsub("^%u%u%u%-", ""):gsub("[^%w%-]", "")
   local crc
   if emu.checksum then
     -- 0.10: emu:checksum(type) defaults to CRC32 and returns 4 big-endian bytes
@@ -802,7 +819,8 @@ function handlers.pong(m)
 end
 
 function handlers.error(m)
-  event("server error " .. tostring(m.code) .. ": " .. tostring(m.msg))
+  event("server error " .. tostring(m.code) .. ": " .. tostring(m.msg)
+    .. (m.code == "game_mismatch" and (" (your ROM id " .. gameId() .. ")") or ""))
   if m.fatal then drop(m.code, not NO_RETRY[m.code]); return end
   -- roll back the local step the server just refused
   if m.re == "trade_offer" and S.trade and S.trade.stage == "sending" then S.trade = nil
@@ -1025,8 +1043,32 @@ local function presenceTick()
   end
 end
 
+-- Commands from the launcher: it writes lines to work/mp_cmd_<profile>.txt; we run and delete them.
+-- "say <text>" chats (any text, no quoting needed); "mp.<command>(...)" runs a console command.
+local CMD_PATH = WORK .. "mp_cmd_" .. PROFILE .. ".txt"
+local luaLoad = load
+local function pollCommands()
+  local text = readFile(CMD_PATH)
+  if not text then return end
+  os.remove(CMD_PATH)
+  for line in text:gmatch("[^\r\n]+") do
+    local chat = line:match("^say (.+)$")
+    if chat then
+      pcall(_G.mp.say, chat)
+    elseif line:match("^%s*mp%.[%w_]+%b()%s*$") then
+      local fn, err = luaLoad(line, "launcher", "t", _ENV)
+      local ok = true
+      if fn then ok, err = pcall(fn) end
+      if not fn or not ok then event("launcher command failed: " .. line .. " (" .. tostring(err) .. ")") end
+    else
+      event("launcher command ignored: " .. line)
+    end
+  end
+end
+
 local function tick()
   S.frame = S.frame + 1
+  if S.frame % 30 == 15 then pcall(pollCommands) end
   if #pendingClose > 0 then closePending() end
   if S.frame % 30 == 0 then _RRMP_TRACE("tick " .. S.frame) end
   local f = S.frame

@@ -12,3 +12,7 @@ __pycache__/
 *.pyc
 node_modules/
 server/data/
+
+# launcher build output
+build/
+dist/

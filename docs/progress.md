@@ -529,3 +529,37 @@ Beta checklist sections 1-3 pass on one PC. Open: section 4 (two PCs via Tailsca
   The move menu never showed a Z trigger (START does nothing, R shows field info), even in a battle started after
   adding the ring. Radical Red probably also needs a story flag. Test from a save that can already use Z-Moves.
   Test changes undone (Oran Berry back, ring removed).
+
+## 2026-10-25 - run 15 (local): launcher, mGBA dev build, auto-spawn really fixed
+- **Correction to run 14:** the auto-spawn script wrote opcode 0x53, which is `removeobject` in FireRed's script
+  command table (read from the ROM with the new tools/thumbdis.py). `addobject` is 0x55. Run 14's "spawned without
+  moving" was a puppet object left over from before. With 0x55: a puppet removed in Hosty's game came back
+  40 frames later while Hosty stood still, and two freshly loaded games drew each other 9 tiles apart with nobody
+  moving.
+- **mGBA development build** (0.11-9159, from mgba.io) has `--script FILE` ("Run a script on start"). 0.10.5 has
+  no such option. The client runs unchanged under it.
+- Game ID fix: 0.10.5's getGameCode() returns "AGB-BPRE" and 0.11 returns "BPRE", so mixed versions were refused
+  as "different ROM". The client now strips the platform prefix (all clients must update together).
+- Client: launcher settings arrive as RRMP_HOST/PORT/ROOM/NAME/PROFILE environment variables (first load only).
+  Commands arrive in work/mp_cmd_<profile>.txt: "say <text>" chats, "mp.x(...)" runs a command, anything else is
+  refused.
+- **Launcher** (launcher/rr_launcher.py, Tk, standard library only):
+  - pick ROM (checks BPRE v1.0, size, shows CRC32), name, room;
+  - Host (runs the relay server as a subprocess on 0.0.0.0, UPnP port mapping via launcher/upnp.py) or Join;
+  - Play backs up the .sav, then starts mGBA with --script;
+  - shows the live status file and has a chat box.
+  - Test-only overrides: RRMP_BIND=127.0.0.1 and RRMP_NO_UPNP=1.
+- Packaged with PyInstaller (tools/build_launcher.py) into dist/RadicalRedOnline/: exe + 3 client scripts + mGBA dev
+  build with licenses + README. Zip 33 MB. mGBA's generated config/library files are excluded (they hold local
+  paths).
+- Tested in real mGBA:
+  - from source: host on localhost:8770, two dev-build games joined room LAUNCH, saw each other, movement and chat
+    synced;
+  - packaged exe through the GUI: TesterA hosted on 8772, TesterB joined via 127.0.0.1:8772, chat crossed, saves
+    backed up, settings remembered;
+  - the .exe server took over 6 s to start the first time, so the launcher now waits for the port before starting
+    the host's own game.
+- Not tested yet: UPnP on a real router (needs the user's OK), a friend on another network, the Windows firewall
+  prompt on first Host.
+- New tests: tests/test_launcher.py (9: UPnP against a fake router on localhost, ROM check, address parsing, save
+  backups).

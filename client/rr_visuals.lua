@@ -455,7 +455,8 @@ function _RRMP_VISUALS_NEW(env)
           and emu:read32(A.gObjectEvents) & F_FROZEN == 0 then
         local cmds = {}
         for k = 0, MAX_PUPPETS - 1 do
-          if V.slotPeer[k] and not activeK[k] then cmds[#cmds + 1] = string.char(0x53, LOCALID_BASE + k, 0) end
+          -- 0x55 = addobject (0x53 is removeobject in FireRed's command table: read from the ROM, run 15)
+          if V.slotPeer[k] and not activeK[k] then cmds[#cmds + 1] = string.char(0x55, LOCALID_BASE + k, 0) end
         end
         if #cmds > 0 then
           wbytes(V.spawnAt, table.concat(cmds) .. string.pack("<BI2I2B", 0x16, SPAWN_VAR, 0, 0x02))

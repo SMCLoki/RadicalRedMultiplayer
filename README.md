@@ -1,13 +1,27 @@
 # Radical Red Online (work in progress)
 
-Play Pokémon Radical Red together online: up to **8 players per room** see where everyone is, chat and
-trade Pokémon. Other players on your map walk around as characters (take a step to see newcomers). PvP battles are being built (network part done, game part in progress).
-It is a small server program plus a script that runs inside the mGBA emulator.
+Play Pokémon Radical Red together online: up to **8 players per room** see where everyone is, chat, trade
+Pokémon and battle each other. Other players on your map walk around as characters.
+It is a launcher with a small relay server plus a script that runs inside the mGBA emulator.
 **No game files are included**: bring your own legally obtained Radical Red ROM.
 
-Status: see `docs/progress.md`. Not yet tested inside the real emulator: treat as alpha.
+Status: alpha, tested in real mGBA on one PC (see `docs/progress.md`).
 
-## Quick start (Windows, about 10 minutes)
+## Easiest: the launcher (Windows)
+
+1. Download `RadicalRedOnline-<version>-win64.zip` (from the releases page, or build it: `py -3 tools/build_launcher.py`),
+   unzip it and double-click **RadicalRedOnline.exe**. mGBA is included (a development build, which can load the
+   multiplayer script by itself).
+2. **Browse...** to your Radical Red ROM, type your name and a room code.
+3. **One player hosts** (peer-to-peer, no server to rent): choose *Host a game* and press **Play**. The launcher runs
+   the relay server on that PC, asks the router to open port 8765 (UPnP) and shows the address friends should use.
+   If UPnP is off on the router it explains the alternatives (forward TCP 8765, or use Tailscale).
+4. **Friends** choose *Join a friend*, type the host's address and press **Play**.
+5. The launcher shows who is online and has a chat box. Your `.sav` is backed up to `work\save_backups` on every Play.
+
+Everyone in a room must use the same ROM (the launcher shows its CRC32 to compare).
+
+## Manual setup (any mGBA 0.10+, or to run the server yourself)
 
 ### What you need
 1. **mGBA 0.10.5 or newer**: https://mgba.io/downloads.html (install to the default folder).
