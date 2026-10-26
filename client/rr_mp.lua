@@ -439,7 +439,13 @@ local S = {
 }
 M.S = S
 
+-- work/mp_log_<profile>.txt: every event of this session with the time, for the launcher's log pane
+local LOG_PATH = WORK .. "mp_log_" .. PROFILE .. ".txt"
+writeFile(LOG_PATH, "")
+
 local function event(msg)
+  local f = io.open(LOG_PATH, "ab")
+  if f then f:write(os.date("%H:%M:%S "), tostring(msg), string.char(10)); f:close() end
   S.log[#S.log + 1] = msg
   if #S.log > (QUIET and 15 or 6) then table.remove(S.log, 1) end   -- the launcher has room for more
   S.dirty = true
@@ -973,6 +979,32 @@ if console and console.createBuffer and not QUIET and not io.open(WORK .. "mp_no
   end
 end
 
+-- work/mp_state_<profile>.json: what the launcher's buttons and trade panel need
+local function writeStateJson(ids)
+  local players = {}
+  for _, id in ipairs(ids) do
+    local p = S.peers[id]
+    local st = p.state or {}
+    players[#players + 1] = { id = id, name = p.name or "?", map = st.map and (st.map[1] .. "." .. st.map[2]) or "",
+                              battle = st.b == 1 }
+  end
+  local party = {}
+  for i, sl in pairs(partySlots()) do
+    local info = sl.info
+    party[#party + 1] = { slot = i + 1, species = info and info.species or 0, level = info and info.level or 0,
+                          ok = info and info.ok or false }
+  end
+  table.sort(party, function(a, b) return a.slot < b.slot end)
+  local function mon(info) return info and { species = info.species, level = info.level } or json.null end
+  local tr = S.trade and { stage = S.trade.stage, role = S.trade.role, peer = S.trade.peer or json.null,
+    peer_name = S.trade.peer and peerName(S.trade.peer) or "", mine = mon(S.trade.mine),
+    theirs = mon(S.trade.theirs) } or json.null
+  local bt = S.battle and { stage = S.battle.stage, peer = S.battle.peer or json.null,
+    peer_name = S.battle.peer and peerName(S.battle.peer) or "" } or json.null
+  writeFile(WORK .. "mp_state_" .. PROFILE .. ".json", json.encode({ status = S.status, me = S.myId or json.null,
+    name = cfg.name, room = cfg.room, players = players, party = party, trade = tr, battle = bt }))
+end
+
 local function render()
   _RRMP_TRACE("render")
   local L = {}
@@ -1018,6 +1050,7 @@ local function render()
   add("Type mp.help() in the scripting console for commands.")
   local text = table.concat(L, "\n")
   _RRMP_TRACE("render text built")
+  pcall(writeStateJson, ids)
   if panel then
     _RRMP_TRACE("panel clear")
     pcall(panel.clear, panel)

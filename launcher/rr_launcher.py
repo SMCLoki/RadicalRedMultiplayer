@@ -139,6 +139,65 @@ def server_ready(port: int) -> bool:
         return False
 
 
+# GBA (FireRed) character set: enough to decode Pokemon names
+_GBA_CHARS = {0x00: " ", 0xAD: ".", 0xAE: "-", 0xB4: "'", 0xB8: ",", 0xBA: "/", 0xAB: "!", 0xAC: "?",
+              0xB5: "♂", 0xB6: "♀", 0x1B: "é"}
+_GBA_CHARS.update({0xA1 + i: str(i) for i in range(10)})
+_GBA_CHARS.update({0xBB + i: chr(ord("A") + i) for i in range(26)})
+_GBA_CHARS.update({0xD5 + i: chr(ord("a") + i) for i in range(26)})
+_species_cache: dict = {}
+
+
+def _gba_text(b: bytes) -> str:
+    out = []
+    for c in b:
+        if c == 0xFF:
+            break
+        out.append(_GBA_CHARS.get(c, "?"))
+    return "".join(out)
+
+
+def species_names(rom: str) -> list[str]:
+    """Species names read from the player's own ROM (Radical Red's expanded table), index = species number."""
+    if rom in _species_cache:
+        return _species_cache[rom]
+    names: list[str] = []
+    try:
+        data = Path(rom).read_bytes()
+        enc = {v: k for k, v in _GBA_CHARS.items()}
+        bulba = bytes(enc[ch] for ch in "Bulbasaur")
+        ivy = bytes(enc[ch] for ch in "Ivysaur")
+        # the ROM can hold several tables (FireRed's original and Radical Red's expanded one): keep the longest
+        i = data.find(bulba + b"\xFF")
+        while i >= 0:
+            step = data.find(ivy + b"\xFF", i) - i
+            if 0 < step <= 16:                       # entries are a fixed size (11 in FireRed)
+                start = i - step                     # entry 0 is the "??????????" placeholder
+                table, bad = [], 0
+                while start + (len(table) + 1) * step <= len(data) and len(table) < 2048:
+                    entry = data[start + len(table) * step:start + (len(table) + 1) * step]
+                    text = _gba_text(entry)
+                    bad = bad + 1 if (not text or "?" in text) and len(table) > 1 else 0
+                    if bad >= 40:                    # 40 unreadable entries in a row: past the end of the table
+                        table = table[:-39]
+                        break
+                    table.append(text)
+                if len(table) > len(names):
+                    names = table
+            i = data.find(bulba + b"\xFF", i + 1)
+    except OSError:
+        pass
+    _species_cache[rom] = names
+    return names
+
+
+def species_name(rom: str, species: int) -> str:
+    names = species_names(rom) if rom else []
+    if 0 < species < len(names) and names[species] and "?" not in names[species]:
+        return names[species]
+    return f"#{species}"
+
+
 def clean_line(text: str) -> str:
     return " ".join(text.split())[:200]
 
@@ -271,7 +330,7 @@ def main() -> None:
     settings = load_settings()
     root = tk.Tk()
     root.title(f"{APP} {VERSION}")
-    root.minsize(560, 520)
+    root.minsize(640, 760)
 
     v_rom = tk.StringVar(value=settings.get("rom", ""))
     v_name = tk.StringVar(value=settings.get("name", ""))
@@ -281,7 +340,8 @@ def main() -> None:
     v_port = tk.StringVar(value=str(settings.get("port", DEFAULT_PORT)))
     v_info = tk.StringVar(value="")
     v_rominfo = tk.StringVar(value="")
-    state: dict = {"host": None, "game": None, "profile": None, "queue": []}
+    state: dict = {"host": None, "game": None, "profile": None, "queue": [], "player_ids": {}, "mon_slots": {},
+                   "log_len": 0}
 
     frm = ttk.Frame(root, padding=12)
     frm.pack(fill="both", expand=True)
@@ -366,18 +426,159 @@ def main() -> None:
     play = ttk.Button(frm, text="Play")
     play.grid(row=6, column=0, columnspan=3, sticky="ew")
 
-    status = tk.Text(frm, height=14, wrap="word", font=("Consolas", 9), state="disabled")
-    status.grid(row=7, column=0, columnspan=3, sticky="nsew", pady=(10, 4))
+    # log (everything that happened this session) beside the live status
+    panes = ttk.PanedWindow(frm, orient="horizontal")
+    panes.grid(row=7, column=0, columnspan=3, sticky="nsew", pady=(10, 4))
     frm.rowconfigure(7, weight=1)
+    log_box = ttk.LabelFrame(panes, text="Log")
+    logview = tk.Text(log_box, height=14, width=46, wrap="word", font=("Consolas", 9), state="disabled")
+    log_scroll = ttk.Scrollbar(log_box, command=logview.yview)
+    logview.configure(yscrollcommand=log_scroll.set)
+    logview.pack(side="left", fill="both", expand=True)
+    log_scroll.pack(side="right", fill="y")
+    status_box = ttk.LabelFrame(panes, text="Status")
+    status = tk.Text(status_box, height=14, width=46, wrap="word", font=("Consolas", 9), state="disabled")
+    status.pack(fill="both", expand=True)
+    panes.add(log_box, weight=1)
+    panes.add(status_box, weight=1)
+
+    # quick replies: the usual commands one click away
+    quick = ttk.Frame(frm)
+    quick.grid(row=8, column=0, columnspan=3, sticky="ew", pady=(0, 4))
+    for i, (label, cmd) in enumerate((("Who's online", "mp.who()"), ("My party", "mp.party()"),
+                                      ("Accept battle", "mp.fight()"), ("Decline", "mp.decline()"),
+                                      ("Give up battle", "mp.forfeit()"))):
+        ttk.Button(quick, text=label, command=lambda c=cmd: queue_cmd(c)).grid(row=0, column=i, padx=(0, 4))
+
+    # trade panel: pick a player and one of your Pokemon, then Offer / Accept / Confirm
+    trade = ttk.LabelFrame(frm, text="Trade", padding=6)
+    trade.grid(row=9, column=0, columnspan=3, sticky="ew", pady=(0, 6))
+    trade.columnconfigure(1, weight=1)
+    trade.columnconfigure(3, weight=1)
+    v_tplayer, v_tmon, v_tinfo = tk.StringVar(), tk.StringVar(), tk.StringVar(value="Start the game to trade.")
+    ttk.Label(trade, text="Player").grid(row=0, column=0, sticky="w")
+    cb_player = ttk.Combobox(trade, textvariable=v_tplayer, state="readonly", width=18)
+    cb_player.grid(row=0, column=1, sticky="ew", padx=(4, 10))
+    ttk.Label(trade, text="Your Pokémon").grid(row=0, column=2, sticky="w")
+    cb_mon = ttk.Combobox(trade, textvariable=v_tmon, state="readonly", width=22)
+    cb_mon.grid(row=0, column=3, sticky="ew", padx=(4, 0))
+    tbtn = ttk.Frame(trade)
+    tbtn.grid(row=1, column=0, columnspan=4, sticky="w", pady=(6, 0))
+    ttk.Label(trade, textvariable=v_tinfo, foreground="#0a5", wraplength=540).grid(
+        row=2, column=0, columnspan=4, sticky="w", pady=(4, 0))
+
     chat = ttk.Frame(frm)
-    chat.grid(row=8, column=0, columnspan=3, sticky="ew")
+    chat.grid(row=10, column=0, columnspan=3, sticky="ew")
     chat.columnconfigure(0, weight=1)
     v_chat = tk.StringVar()
     chat_entry = ttk.Entry(chat, textvariable=v_chat)
     chat_entry.grid(row=0, column=0, sticky="ew")
-    ttk.Label(frm, text="Chat, or a command like mp.battle(\"Ash\") / mp.who(). Trade and battle: walk up to a "
-                        "player in the game and press A.", foreground="#555", wraplength=520).grid(
-        row=9, column=0, columnspan=3, sticky="w")
+    ttk.Label(frm, text="Chat, or a command like mp.battle(\"Ash\"). You can also walk up to a player in the game "
+                        "and press A to trade or battle.", foreground="#555", wraplength=540).grid(
+        row=11, column=0, columnspan=3, sticky="w")
+
+    def queue_cmd(cmd: str):
+        if state["profile"] is None:
+            v_tinfo.set("Press Play first.")
+            return
+        state["queue"].append(cmd)
+
+    def selected_player():
+        sel = v_tplayer.get()
+        return state["player_ids"].get(sel)
+
+    def selected_slot():
+        sel = v_tmon.get()
+        return state["mon_slots"].get(sel)
+
+    def trade_offer():
+        pid, slot = selected_player(), selected_slot()
+        if pid is None or slot is None:
+            v_tinfo.set("Pick a player and one of your Pokémon first.")
+            return
+        queue_cmd(f"mp.trade({pid}, {slot})")
+
+    def trade_accept():
+        slot = selected_slot()
+        if slot is None:
+            v_tinfo.set("Pick which of your Pokémon to give, then press Accept.")
+            return
+        queue_cmd(f"mp.accept({slot})")
+
+    for i, (label, fn) in enumerate((("Offer trade", trade_offer), ("Accept with selected", trade_accept),
+                                      ("Confirm trade", lambda: queue_cmd("mp.confirm()")),
+                                      ("Cancel / decline", lambda: queue_cmd("mp.cancel()")))):
+        ttk.Button(tbtn, text=label, command=fn).grid(row=0, column=i, padx=(0, 6))
+
+    def mon_label(m) -> str:
+        if not m:
+            return "?"
+        name = species_name(v_rom.get().strip(), int(m.get("species") or 0))
+        return f"{name} Lv{m.get('level', '?')}"
+
+    def update_trade_panel(st: dict):
+        me = st.get("me")
+        players = st.get("players") or []
+        if isinstance(players, dict):
+            players = list(players.values())
+        names = {}
+        for p in players:
+            if p.get("id") != me:
+                names[f"{p.get('name', '?')} (#{p.get('id')})"] = p.get("id")
+        state["player_ids"] = names
+        cb_player["values"] = list(names)
+        if v_tplayer.get() not in names:
+            v_tplayer.set(next(iter(names), ""))
+        party = st.get("party") or []
+        if isinstance(party, dict):
+            party = list(party.values())
+        mons = {}
+        for m in party:
+            if m.get("ok"):
+                mons[f"{m['slot']}: {mon_label(m)}"] = m["slot"]
+        state["mon_slots"] = mons
+        cb_mon["values"] = list(mons)
+        if v_tmon.get() not in mons:
+            v_tmon.set(next(iter(mons), ""))
+        tr = st.get("trade")
+        if not tr:
+            v_tinfo.set("No trade open. Pick a player and a Pokémon, then press Offer trade."
+                        if names else "Nobody else is online in your room yet.")
+            return
+        who, stage = tr.get("peer_name") or "?", tr.get("stage")
+        theirs, mine = tr.get("theirs"), tr.get("mine")
+        if stage == "offered":
+            v_tinfo.set(f"{who} offers {mon_label(theirs)}. Pick your Pokémon above and press Accept with selected "
+                        f"(or Cancel / decline).")
+        elif stage in ("sending", "offering", "answered"):
+            v_tinfo.set(f"Waiting for {who}... (you offered {mon_label(mine)})")
+        elif stage == "preview":
+            v_tinfo.set(f"Your {mon_label(mine)} for {who}'s {mon_label(theirs)}. Press Confirm trade to finish.")
+        elif stage == "confirmed":
+            v_tinfo.set(f"Confirmed. Waiting for {who} to confirm...")
+        else:
+            v_tinfo.set(f"Trade with {who}: {stage}")
+
+    def update_log(prof):
+        path = WORK / f"mp_log_{prof}.txt"
+        try:
+            data = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return
+        if len(data) < state["log_len"]:          # a new game session started: the file was reset
+            state["log_len"] = 0
+            logview.configure(state="normal")
+            logview.delete("1.0", "end")
+            logview.configure(state="disabled")
+        new = data[state["log_len"]:]
+        if new:
+            state["log_len"] = len(data)
+            at_bottom = logview.yview()[1] > 0.99
+            logview.configure(state="normal")
+            logview.insert("end", new)
+            logview.configure(state="disabled")
+            if at_bottom:
+                logview.see("end")
 
     def set_status(text: str):
         status.configure(state="normal")
@@ -422,6 +623,12 @@ def main() -> None:
                 state["game"] = None
                 play.configure(state="normal")
             set_status(text)
+            update_log(prof)
+            try:
+                st = json.loads((WORK / f"mp_state_{prof}.json").read_text(encoding="utf-8"))
+                update_trade_panel(st)
+            except (OSError, ValueError):
+                pass
             flush_commands()
         host = state["host"]
         if host is not None and not host.alive():
@@ -491,7 +698,7 @@ def main() -> None:
         (WORK / f"mp_status_{prof}.txt").unlink(missing_ok=True)
         state["game"] = subprocess.Popen([mgba, "--script", str(CLIENT / "rr_mp.lua"), rom], env=env,
                                          cwd=str(Path(mgba).parent))
-        state["profile"] = prof
+        state["profile"], state["log_len"] = prof, 0
         set_status("Starting the game..." + (f"\nSave backed up to {backup}" if backup else ""))
 
     play.configure(command=start)

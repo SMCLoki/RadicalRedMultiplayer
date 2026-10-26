@@ -20,6 +20,7 @@ function _RRMP_VISUALS_NEW(env)
   local A = {
     gSprites = 0x0202063C, gMapHeader = 0x02036DFC, gObjectEvents = 0x02036E38,
     sb1Ptr = 0x03005008, playerAvatar = 0x02037078, gMain = 0x030030F0, battleFlags = 0x02022B4C,
+    scriptCtx = 0x03000EB0,   -- sScriptContext1 (global script engine), FireRed 1.0
   }
   V.addr = A
   local OBJ, SPR, TPL, NOBJ = 0x24, 0x44, 0x18, 16
@@ -442,6 +443,22 @@ function _RRMP_VISUALS_NEW(env)
       end
     end
 
+    -- Is the game running one of its own scripts (NPC talk, cutscene, sign)? sScriptContext1: mode at +1
+    -- (0 = stopped), scriptPtr at +8, call stack at +0x0C (stackDepth at +0). Scripts in our own RAM area
+    -- (talk-to-player menu, auto-spawn) don't count.
+    local gameScript = false
+    do
+      local ctx = A.scriptCtx
+      if emu:read8(ctx + 1) ~= 0 then
+        local lo, hi = sb1 + SB1_TEMPLATES + SPAWN_SLOT * TPL, sb1 + SB1_TEMPLATES + 64 * TPL
+        local function ours(ptr) return ptr >= lo and ptr < hi end
+        gameScript = not ours(emu:read32(ctx + 8))
+        for i = 0, math.min(emu:read8(ctx), 20) - 1 do
+          if ours(emu:read32(ctx + 0x0C + i * 4)) then gameScript = false end
+        end
+      end
+    end
+
     -- find spawned puppets and drive or hide them
     local shown, at, activeK = 0, {}, {}
     for i = 1, NOBJ - 1 do
@@ -452,7 +469,9 @@ function _RRMP_VISUALS_NEW(env)
         if k >= 0 and k < MAX_PUPPETS then
           local onMap = emu:read8(o + 9) == num and emu:read8(o + 10) == group
           local p = patched and onMap and V.slotPeer[k] and V.peers[V.slotPeer[k]]
-          if p and emu:read8(o + 5) == p.gfx2 then
+          if p and emu:read8(o + 5) == p.gfx2 and gameScript then
+            hide(o)   -- the game's own script runs: step aside so no puppet blocks an NPC's scripted path
+          elseif p and emu:read8(o + 5) == p.gfx2 then
             drive(o, p)
             shown = shown + 1
             at[(s16(emu:read16(o + 0x10))) .. "," .. (s16(emu:read16(o + 0x12)))] = V.slotPeer[k]
