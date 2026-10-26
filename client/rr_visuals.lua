@@ -181,6 +181,10 @@ function _RRMP_VISUALS_NEW(env)
     end
     if V.scriptsAt and V.origScripts and emu:read32(A.gMapHeader + 8) == V.scriptsAt then
       emu:write32(A.gMapHeader + 8, V.origScripts)
+      -- an armed auto-spawn trigger would stay set with its reset script gone: auto-spawn stops on this map and
+      -- the game's own scripts see our value in VAR_TEMP_F. Clear it if it still holds ours (see SPAWN_VAR below).
+      local var = emu:read32(A.sb1Ptr) + 0x1000 + (0x400F - 0x4000) * 2
+      if isEwram(var) and emu:read16(var) == 0x4D51 then emu:write16(var, 0) end
     end
     V.scriptsAt = nil
   end
@@ -310,7 +314,9 @@ function _RRMP_VISUALS_NEW(env)
 
   local function hide(o)
     local flags = emu:read32(o)
-    if flags & F_HELD ~= 0 and flags & F_HELD_DONE == 0 then return end  -- let a running step finish first
+    -- let a running step finish first, unless the game froze the object (lock/lockall in a cutscene): then the
+    -- step never finishes and the puppet would stay visible and solid for the whole scene
+    if flags & F_HELD ~= 0 and flags & F_HELD_DONE == 0 and flags & F_FROZEN == 0 then return end
     emu:write32(o, flags | F_INVISIBLE)
     local cx, cy = coords(o)
     if cx > FAR / 2 then teleport(o, FAR, FAR) end
