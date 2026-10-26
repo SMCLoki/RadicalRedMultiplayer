@@ -184,6 +184,8 @@ class FakeGBA:
         prelude(self.py)
         g = self.lua.globals()
         g.RRMP_WORK = (work.replace("\\", "/") + "/").encode()
+        # the client's real-time timers read this instead of os.clock(), which is CPU time off Windows
+        g._RRMP_CLOCK = lambda: self.py.frame / 60.0
         if profile is not None:
             g.RRMP_PROFILE = profile
         if config:

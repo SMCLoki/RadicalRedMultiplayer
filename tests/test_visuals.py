@@ -77,6 +77,8 @@ class VisualsTest(unittest.TestCase):
         (and so puppets) when the camera moves."""
         self.until(lambda: a.M.visuals.slotPeer[0] is not None and b.M.visuals.slotPeer[0] is not None,
                    msg="peers assigned")
+        # the game goes first: a map is patched only after the player has been free for 1 s (settle gate)
+        self.until(lambda: a.M.visuals.reason == b"on" and b.M.visuals.reason == b"on", msg="maps patched")
         for g in (a, b):
             self.walk(g, 2)
             self.walk(g, 1)
@@ -92,6 +94,8 @@ class VisualsTest(unittest.TestCase):
         # The game only spawns new NPCs when the camera moves, so each side takes a step first.
         self.appear(a, b)
         self.until(lambda: self.puppet(a) and self.puppet(b), msg="puppets spawned")
+        # it may spawn while still replaying Blue's step back down
+        self.until(lambda: not self.puppet(a)["moving"] and self.puppet(a)["y"] == 5, msg="puppet at rest")
         pa = self.puppet(a)
         self.assertEqual((pa["x"], pa["y"], pa["localId"]), (8, 5, 0x70))
         self.assertEqual(pa["gfx"], 0, "default puppet_gfx=self uses the viewer's own sprite")
@@ -146,6 +150,36 @@ class VisualsTest(unittest.TestCase):
         self.until(lambda: self.puppet(a) is None, frames=1500, msg="hidden after leave")
         a.shutdown()
         self.assertEqual(a.py.read(0x02036E00, 4), a.ow.maps[(3, 0)], "original MapEvents restored")
+
+    def test_game_script_unpatches_and_hides_until_it_ends(self):
+        # docs/incident_npc_freeze.md: after a battle the trainer's script resumes with the player NOT frozen;
+        # patching then froze the scene. While sScriptContext1 runs a game script the map must be the game's own.
+        CTX, ROM_SCRIPT = 0x03000EB0, 0x081A4E52
+        a, b = self.two()
+        self.appear(a, b)
+        self.until(lambda: self.puppet(a), msg="spawn")
+        orig = a.ow.maps[(3, 0)]
+        self.assertNotEqual(a.py.read(0x02036E00, 4), orig)
+        a.py.write(CTX + 8, 4, ROM_SCRIPT)
+        a.py.write(CTX + 1, 1, 1)                     # a ROM script runs; player object stays unfrozen
+        self.step(1)
+        self.assertEqual(a.py.read(0x02036E00, 4), orig, "map unpatched while the game's script runs")
+        self.step(30)                                 # hide() lets a step in progress finish first
+        self.assertIsNone(self.puppet(a), "other players' characters out of the way")
+        self.assertIn(b"script", a.M.visuals.reason)
+        self.step(120)                                # stays that way for as long as the script runs
+        self.assertEqual(a.py.read(0x02036E00, 4), orig)
+        self.assertIsNone(self.puppet(a))
+        a.py.write(CTX + 1, 1, 0)                     # script ended: re-patched after the settle time
+        self.until(lambda: a.M.visuals.reason == b"on" and self.puppet(a), msg="back after the script")
+        self.assertNotEqual(a.py.read(0x02036E00, 4), orig)
+        # our own talk-to-player script (template slots 54-62) keeps the map patched
+        a.py.write(CTX + 8, 4, 0x0202552C + 0x8E0 + 54 * 0x18)
+        a.py.write(CTX + 1, 1, 2)
+        self.step(30)
+        self.assertNotEqual(a.py.read(0x02036E00, 4), orig, "own script: map stays patched")
+        self.assertIsNotNone(self.puppet(a))
+        a.py.write(CTX + 1, 1, 0)
 
     def test_real_npcs_untouched(self):
         a, b = self.two()

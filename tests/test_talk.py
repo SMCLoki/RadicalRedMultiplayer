@@ -69,6 +69,8 @@ class TalkTest(unittest.TestCase):
         a, b = self.client("Red", 5, self.ma), self.client("Blue", 6, self.mb)
         self.until(lambda: a.M.visuals.ok and b.M.visuals.ok and a.M.visuals.slotPeer[0] is not None
                    and b.M.visuals.slotPeer[0] is not None, msg="visuals ready")
+        # the game goes first: a map is patched only after the player has been free for 1 s (settle gate)
+        self.until(lambda: a.M.visuals.reason == b"on" and b.M.visuals.reason == b"on", msg="maps patched")
         for g in (a, b):           # the game spawns NPCs on camera moves
             g.ow.walk(2); self.step(16)
             g.ow.walk(1); self.step(16)

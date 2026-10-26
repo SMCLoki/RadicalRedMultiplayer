@@ -485,7 +485,8 @@ end
 -- Real time in seconds. Timers use it instead of frame counts: with fast-forward the game runs many frames per
 -- second, which made the 6 s timeout fire in well under a second and file writes multiply (mGBA froze).
 -- On Windows os.clock() is wall-clock time since the program started.
-local function clock() return os.clock() end
+-- _RRMP_CLOCK: test hook (tools/mgba_mock.py runs a virtual 60 fps clock; os.clock() there is CPU time).
+local function clock() return (_RRMP_CLOCK or os.clock)() end
 
 local net = { sock = nil, inbuf = "", outbuf = "", lastRx = 0, nextPing = 0, backoff = 1,
               retryAt = 0, pingN = 0, pingAt = {}, rtt = nil, auto = cfg.autoconnect ~= "0" }

@@ -636,3 +636,12 @@ running (the player is not flagged frozen there). Proof: in the user's stuck gam
 `unpatch()`) made the scene continue at once. Fix: no patch while `sScriptContext1` runs a game script (characters
 hidden too), re-patch once idle; a watchdog logs any script stuck for 8 s. Verified in real play by the user after
 reloading. All players must update.
+
+## 2026-10-26 (cloud): test doubles caught up with 9b3765f / 8b0e303 / 39fa794
+Visuals and talk tests had been red since the settle gate (9b3765f), client tests since real-time timers (8b0e303).
+- `tools/mgba_mock.py` sets `_RRMP_CLOCK` (virtual 60 fps clock); `rr_mp.lua` `clock()` uses it when present.
+  Off Windows `os.clock()` is CPU time, not wall time, so the mock (and mGBA on Linux/macOS) saw timers crawl.
+- Visuals/talk tests wait for the settle gate (`reason == "on"`) before the first step.
+- New `test_game_script_unpatches_and_hides_until_it_ends` (incident_npc_freeze.md): a ROM script running with the
+  player unfrozen unpatches the map and hides puppets for as long as it runs; re-patched after it ends; our own
+  talk script keeps the map patched. All suites green: server 38, launcher 16, client 15, visuals 8, battle 9, talk 3.
