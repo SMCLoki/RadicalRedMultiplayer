@@ -629,3 +629,10 @@ host's PC; this removes the Tailscale suggestions and fills the gaps.
     target correct, update kept launcher.json and removed a stale file, and the windowed run started the
     installed launcher.
   - Unsigned, so Windows SmartScreen will warn on other PCs ("More info" > "Run anyway").
+
+## 2026-10-25 - incident: game unresponsive after trainer / rival battles (all players) - FIXED
+See docs/incident_npc_freeze.md. Cause: the map patch was applied while the trainer's post-battle script was still
+running (the player is not flagged frozen there). Proof: in the user's stuck game, `mp.visuals(false)` (which runs
+`unpatch()`) made the scene continue at once. Fix: no patch while `sScriptContext1` runs a game script (characters
+hidden too), re-patch once idle; a watchdog logs any script stuck for 8 s. Verified in real play by the user after
+reloading. All players must update.

@@ -1124,7 +1124,12 @@ local AUTOSAVE_SECONDS = tonumber(cfg.autosave_seconds or "") or 10
 local autosaveN = 0
 local function autosave()
   if AUTOSAVE_SECONDS <= 0 or not emu.saveStateFile then return end
-  if M.engine.cur or (M.engine.inOverworld and not M.engine.inOverworld()) then return end
+  if M.engine.cur then return end
+  -- only on the map with the player free to move: overworld callback, no battle, player not frozen by a script
+  -- (the check through the battle module could be skipped, and autosaves of the title screen replaced good ones)
+  if emu:read32(0x030030F4) ~= 0x080565B5 or inBattle() then return end
+  local pflags = emu:read32(RAM.objEvents)
+  if pflags & 0x10001 ~= 0x10001 or pflags & 0x100 ~= 0 then return end
   if S.trade and S.trade.stage then return end
   autosaveN = autosaveN % 3 + 1
   -- flags 2|8 = save data + RTC, no screenshot: taking the screenshot from the frame callback hung mGBA 0.11
@@ -1141,8 +1146,10 @@ local function tick()
   if #pendingClose > 0 then closePending() end
   if S.frame % 30 == 0 then _RRMP_TRACE("tick " .. S.frame) end
   local f = S.frame
+  if TRACE_PATH then _RRMP_TRACE("f" .. S.frame .. " steps") end
   sampleSteps()
   if M.engine.tick then
+    if TRACE_PATH then _RRMP_TRACE("engine b=" .. emu:read32(RAM.battleFlags) .. " cb2=" .. emu:read32(0x030030F4)) end
     local ok, e = pcall(M.engine.tick, f)
     if not ok and f - visualsErrAt > 5 * FPS then
       visualsErrAt = f
@@ -1150,12 +1157,14 @@ local function tick()
     end
   end
   if visuals and S.status == "online" then
+    if TRACE_PATH then _RRMP_TRACE("visuals") end
     local ok, e = pcall(visuals.tick, f)
     if not ok and f - visualsErrAt > 5 * FPS then
       visualsErrAt = f
       event("visuals error: " .. tostring(e))
     end
     if M.pollTalkResult then
+      if TRACE_PATH then _RRMP_TRACE("talk") end
       local ok2, e2 = pcall(M.pollTalkResult)
       if not ok2 then event("talk menu error: " .. tostring(e2)) end
     end
@@ -1175,14 +1184,17 @@ local function tick()
     if f % 6 == 0 then presenceTick() end
     if every("commits", 0.5) then processCommits() end
     if every("reconcile", 5) and S.status == "online" and reconcile() > 0 then event("save your game!") end
+    if TRACE_PATH then _RRMP_TRACE("battleTick") end
     battleTick()
+    if TRACE_PATH then _RRMP_TRACE("flush") end
     flush()
   elseif S.status == "offline" and net.auto and t >= net.retryAt then
     connect()
   end
   if every("lock", 5) then touchLock() end
   if (S.dirty and every("render", 0.25)) or every("render_idle", 1) then render() end
-  if every("autosave", AUTOSAVE_SECONDS) then autosave() end
+  if every("autosave", AUTOSAVE_SECONDS) then if TRACE_PATH then _RRMP_TRACE("autosave") end; autosave() end
+  if TRACE_PATH then _RRMP_TRACE("tick done") end
 end
 
 local frameCb = callbacks:add("frame", function()
